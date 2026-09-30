@@ -56,6 +56,7 @@ export default function Register() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [debugStep, setDebugStep] = useState("");
 
   const allConsentsAccepted = Object.values(consents).every(Boolean);
 
@@ -78,7 +79,9 @@ export default function Register() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
     setError("");
+    setDebugStep("");
 
     if (!allConsentsAccepted) {
       setError(
@@ -115,14 +118,22 @@ export default function Register() {
     try {
       setLoading(true);
 
-      // 1. Create the Firebase Authentication account.
+      // STEP 1: Firebase Authentication
+      setDebugStep("STEP 1: Creating Firebase Authentication account...");
+
       const user = await registerUser(
         form.email.trim(),
         form.password,
         form.fullName.trim()
       );
 
-      // 2. Create the user's Firestore profile automatically.
+      setDebugStep(
+        `STEP 1 SUCCESS: Authentication account created. UID: ${user.uid}`
+      );
+
+      // STEP 2: Firestore user profile
+      setDebugStep("STEP 2: Creating Firestore user profile...");
+
       await createUserProfile({
         userId: user.uid,
         fullName: form.fullName.trim(),
@@ -131,26 +142,53 @@ export default function Register() {
         referralCode: form.referralCode.trim(),
       });
 
-      // 3. Save the user's consent versions and acceptance time.
+      setDebugStep(
+        "STEP 2 SUCCESS: Firestore user profile created successfully."
+      );
+
+      // STEP 3: Firestore consent record
+      setDebugStep("STEP 3: Saving consent information...");
+
       await saveUserConsents(user.uid);
 
-      // 4. Continue to the dashboard.
+      setDebugStep(
+        "STEP 3 SUCCESS: Consent information saved successfully."
+      );
+
+      // STEP 4: Dashboard
+      setDebugStep("STEP 4 SUCCESS: Registration completed. Redirecting...");
+
       navigate("/dashboard");
     } catch (err: unknown) {
-      console.error("REGISTRATION ERROR:", err);
+      console.error("REGISTRATION DEBUG ERROR:", err);
 
       const firebaseError = err as {
         code?: string;
         message?: string;
+        name?: string;
       };
 
+      const errorCode = firebaseError.code ?? "NO_ERROR_CODE";
+      const errorMessage =
+        firebaseError.message ?? "No error message was provided.";
+
       setError(
-        `Registration failed.\nCode: ${
-          firebaseError.code ?? "unknown"
-        }\nMessage: ${
-          firebaseError.message ?? "Unknown error"
-        }`
+        `REGISTRATION FAILED
+
+Step reached:
+${debugStep}
+
+Error code:
+${errorCode}
+
+Error message:
+${errorMessage}
+
+Error name:
+${firebaseError.name ?? "Unknown"}`
       );
+
+      setDebugStep(`FAILED: ${debugStep}`);
     } finally {
       setLoading(false);
     }
@@ -159,7 +197,11 @@ export default function Register() {
   return (
     <main className="auth-page">
       <div className="auth-card">
-        <Link to="/" className="auth-brand" aria-label="XS Company Limited">
+        <Link
+          to="/"
+          className="auth-brand"
+          aria-label="XS Company Limited"
+        >
           <span className="brand-x">X</span>
           <span className="brand-s">S</span>
         </Link>
@@ -274,7 +316,10 @@ export default function Register() {
 
             <div className="consent-list">
               {consentItems.map((item) => (
-                <label className="consent-item" key={item.key}>
+                <label
+                  className="consent-item"
+                  key={item.key}
+                >
                   <input
                     type="checkbox"
                     checked={consents[item.key]}
@@ -290,11 +335,32 @@ export default function Register() {
             </div>
           </section>
 
+          {debugStep && (
+            <div
+              className="form-debug"
+              style={{
+                whiteSpace: "pre-line",
+                padding: "12px",
+                marginTop: "12px",
+                border: "1px solid #ccc",
+                borderRadius: "8px",
+                fontSize: "13px",
+                lineHeight: "1.5",
+              }}
+            >
+              {debugStep}
+            </div>
+          )}
+
           {error && (
             <div
               className="form-error"
               role="alert"
-              style={{ whiteSpace: "pre-line" }}
+              style={{
+                whiteSpace: "pre-line",
+                padding: "14px",
+                marginTop: "12px",
+              }}
             >
               {error}
             </div>
@@ -305,7 +371,9 @@ export default function Register() {
             className="primary-button register-button"
             disabled={!allConsentsAccepted || loading}
           >
-            {loading ? "Creating account..." : "Create account"}
+            {loading
+              ? "Creating account..."
+              : "Create account"}
           </button>
 
           <p className="auth-footer">
@@ -316,4 +384,4 @@ export default function Register() {
       </div>
     </main>
   );
-    }
+  }
