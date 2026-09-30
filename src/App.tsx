@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   ArrowRight,
   BarChart3,
@@ -11,10 +11,13 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import { BrowserRouter, Link, Route, Routes, useNavigate } from "react-router-dom";
+import Register from "./Register";
 
-function App() {
+function HomePage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const navigate = useNavigate();
 
   const faqs = [
     {
@@ -53,26 +56,42 @@ function App() {
             <a href="#home" onClick={() => setMenuOpen(false)}>
               Home
             </a>
+
             <a href="#about" onClick={() => setMenuOpen(false)}>
               About
             </a>
+
             <a href="#how-it-works" onClick={() => setMenuOpen(false)}>
               How It Works
             </a>
+
             <a href="#plans" onClick={() => setMenuOpen(false)}>
               Plans
             </a>
+
             <a href="#referral" onClick={() => setMenuOpen(false)}>
               Referral
             </a>
+
             <a href="#faq" onClick={() => setMenuOpen(false)}>
               FAQ
             </a>
           </nav>
 
           <div className="nav-actions">
-            <button className="btn btn-outline">Login</button>
-            <button className="btn btn-primary">Get Started</button>
+            <button
+              className="btn btn-outline"
+              onClick={() => navigate("/login")}
+            >
+              Login
+            </button>
+
+            <button
+              className="btn btn-primary"
+              onClick={() => navigate("/register")}
+            >
+              Get Started
+            </button>
           </div>
 
           <button
@@ -107,14 +126,20 @@ function App() {
             </p>
 
             <div className="hero-buttons">
-              <button className="btn btn-primary btn-large">
+              <button
+                className="btn btn-primary btn-large"
+                onClick={() => navigate("/register")}
+              >
                 Start Investing
                 <ArrowRight size={18} />
               </button>
 
-              <button className="btn btn-light-outline btn-large">
+              <a
+                href="#about"
+                className="btn btn-light-outline btn-large"
+              >
                 Learn More
-              </button>
+              </a>
             </div>
 
             <div className="hero-trust">
@@ -122,6 +147,7 @@ function App() {
                 <ShieldCheck size={19} />
                 <span>Secure account access</span>
               </div>
+
               <div>
                 <BarChart3 size={19} />
                 <span>Track your investment</span>
@@ -134,7 +160,9 @@ function App() {
         <section id="about" className="section">
           <div className="section-heading">
             <span className="eyebrow">ABOUT XS</span>
+
             <h2>A simple way to manage your investment.</h2>
+
             <p>
               XS Company Limited provides a structured digital platform where
               registered users can manage their investment activity, returns,
@@ -167,6 +195,7 @@ function App() {
         <section id="how-it-works" className="section section-dark">
           <div className="section-heading light">
             <span className="eyebrow">HOW IT WORKS</span>
+
             <h2>Start in a few simple steps.</h2>
           </div>
 
@@ -197,7 +226,9 @@ function App() {
         <section id="plans" className="section">
           <div className="section-heading">
             <span className="eyebrow">INVESTMENT</span>
+
             <h2>XS investment cycle</h2>
+
             <p>
               Review the investment terms carefully before participating.
               Returns are subject to the applicable terms and platform
@@ -209,6 +240,7 @@ function App() {
             <div className="plan-top">
               <div>
                 <span className="plan-label">STANDARD CYCLE</span>
+
                 <h3>XS Investment</h3>
               </div>
 
@@ -241,6 +273,7 @@ function App() {
 
             <div className="plan-note">
               <Clock3 size={18} />
+
               <p>
                 When the 3-day cycle expires, a new cycle requires a new
                 deposit. Withdrawal eligibility also requires 2 qualified
@@ -248,7 +281,10 @@ function App() {
               </p>
             </div>
 
-            <button className="btn btn-primary btn-full">
+            <button
+              className="btn btn-primary btn-full"
+              onClick={() => navigate("/register")}
+            >
               Get Started
               <ArrowRight size={18} />
             </button>
@@ -260,7 +296,9 @@ function App() {
           <div className="referral-content">
             <div>
               <span className="eyebrow">REFERRAL PROGRAMME</span>
+
               <h2>Share XS with people you know.</h2>
+
               <p>
                 Every user receives a unique referral code and link. A
                 referral becomes qualified after the referred user registers,
@@ -269,6 +307,7 @@ function App() {
 
               <div className="commission">
                 <Users size={25} />
+
                 <div>
                   <strong>₦50</strong>
                   <span>per qualified referral</span>
@@ -278,12 +317,20 @@ function App() {
 
             <div className="referral-card">
               <Users size={38} />
+
               <h3>Build your referral network</h3>
+
               <p>
                 Track total referrals, qualified referrals and referral
                 commissions directly from your account.
               </p>
-              <button className="btn btn-primary">Join XS</button>
+
+              <button
+                className="btn btn-primary"
+                onClick={() => navigate("/register")}
+              >
+                Join XS
+              </button>
             </div>
           </div>
         </section>
@@ -292,6 +339,7 @@ function App() {
         <section id="faq" className="section">
           <div className="section-heading">
             <span className="eyebrow">FAQ</span>
+
             <h2>Frequently asked questions.</h2>
           </div>
 
@@ -305,6 +353,7 @@ function App() {
                   }
                 >
                   <span>{faq.question}</span>
+
                   <ChevronDown
                     size={20}
                     className={openFaq === index ? "rotate" : ""}
@@ -351,40 +400,59 @@ function App() {
   );
 }
 
-function FeatureCard({
-  icon,
-  title,
-  text,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  text: string;
-}) {
+function LoginPlaceholder() {
   return (
-    <div className="feature-card">
-      <div className="feature-icon">{icon}</div>
-      <h3>{title}</h3>
-      <p>{text}</p>
-    </div>
+    <main className="auth-page">
+      <div className="auth-card">
+        <Link to="/" className="auth-brand">
+          <span className="brand-x">X</span>
+          <span className="brand-s">S</span>
+        </Link>
+
+        <div className="auth-heading">
+          <p className="eyebrow">XS Company Limited</p>
+
+          <h1>Sign in</h1>
+
+          <p>
+            The login page is being connected to your XS account system.
+          </p>
+        </div>
+
+        <Link to="/register" className="primary-button">
+          Create an account
+        </Link>
+
+        <p className="auth-footer">
+          <Link to="/">Return to homepage</Link>
+        </p>
+      </div>
+    </main>
   );
 }
 
-function Step({
-  number,
-  title,
-  children,
-}: {
-  number: string;
-  title: string;
-  children: React.ReactNode;
-}) {
+function DashboardPlaceholder() {
   return (
-    <div className="step">
-      <span className="step-number">{number}</span>
-      <h3>{title}</h3>
-      <p>{children}</p>
-    </div>
-  );
-}
+    <main className="auth-page">
+      <div className="auth-card">
+        <div className="auth-brand">
+          <span className="brand-x">X</span>
+          <span className="brand-s">S</span>
+        </div>
 
-export default App;
+        <div className="auth-heading">
+          <p className="eyebrow">XS Company Limited</p>
+
+          <h1>Dashboard</h1>
+
+          <p>
+            Your dashboard will be connected to your Firebase account in the
+            next stage.
+          </p>
+        </div>
+
+        <Link to="/" className="primary-button">
+          Return to homepage
+        </Link>
+      </div>
+    </main>
