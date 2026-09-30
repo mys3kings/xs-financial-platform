@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { registerUser } from "./auth";
 import { saveUserConsents } from "./consents";
+import { createUserProfile } from "./users";
 
 const consentItems = [
   {
@@ -80,7 +81,24 @@ export default function Register() {
     setError("");
 
     if (!allConsentsAccepted) {
-      setError("Please read and accept all five documents before registering.");
+      setError(
+        "Please read and accept all five documents before creating your account."
+      );
+      return;
+    }
+
+    if (!form.fullName.trim()) {
+      setError("Please enter your full name.");
+      return;
+    }
+
+    if (!form.phone.trim()) {
+      setError("Please enter your phone number.");
+      return;
+    }
+
+    if (!form.email.trim()) {
+      setError("Please enter your email address.");
       return;
     }
 
@@ -94,22 +112,29 @@ export default function Register() {
       return;
     }
 
-    if (!form.fullName.trim() || !form.phone.trim() || !form.email.trim()) {
-      setError("Please complete all required fields.");
-      return;
-    }
-
     try {
       setLoading(true);
 
+      // 1. Create the Firebase Authentication account.
       const user = await registerUser(
         form.email.trim(),
         form.password,
         form.fullName.trim()
       );
 
+      // 2. Create the user's Firestore profile automatically.
+      await createUserProfile({
+        userId: user.uid,
+        fullName: form.fullName.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim(),
+        referralCode: form.referralCode.trim(),
+      });
+
+      // 3. Save the user's consent versions and acceptance time.
       await saveUserConsents(user.uid);
 
+      // 4. Continue to the dashboard.
       navigate("/dashboard");
     } catch (err: unknown) {
       const firebaseError = err as { code?: string };
@@ -121,7 +146,9 @@ export default function Register() {
       } else if (firebaseError.code === "auth/weak-password") {
         setError("Please choose a stronger password.");
       } else {
-        setError("Registration could not be completed. Please try again.");
+        setError(
+          "We could not create your account. Please check your details and try again."
+        );
       }
     } finally {
       setLoading(false);
@@ -131,14 +158,16 @@ export default function Register() {
   return (
     <main className="auth-page">
       <div className="auth-card">
-        <Link to="/" className="auth-brand">
+        <Link to="/" className="auth-brand" aria-label="XS Company Limited">
           <span className="brand-x">X</span>
           <span className="brand-s">S</span>
         </Link>
 
         <div className="auth-heading">
           <p className="eyebrow">XS Company Limited</p>
+
           <h1>Create your account</h1>
+
           <p>
             Enter your details below to create an XS account. Please read the
             information provided before continuing.
@@ -235,6 +264,7 @@ export default function Register() {
           <section className="consent-section">
             <div className="consent-heading">
               <h2>Before you continue</h2>
+
               <p>
                 Please read each document and confirm that you understand the
                 information provided.
