@@ -137,19 +137,20 @@ export default function Register() {
       // 4. Continue to the dashboard.
       navigate("/dashboard");
     } catch (err: unknown) {
-      const firebaseError = err as { code?: string };
+      console.error("REGISTRATION ERROR:", err);
 
-      if (firebaseError.code === "auth/email-already-in-use") {
-        setError("An account with this email already exists.");
-      } else if (firebaseError.code === "auth/invalid-email") {
-        setError("Please enter a valid email address.");
-      } else if (firebaseError.code === "auth/weak-password") {
-        setError("Please choose a stronger password.");
-      } else {
-        setError(
-          "We could not create your account. Please check your details and try again."
-        );
-      }
+      const firebaseError = err as {
+        code?: string;
+        message?: string;
+      };
+
+      setError(
+        `Registration failed.\nCode: ${
+          firebaseError.code ?? "unknown"
+        }\nMessage: ${
+          firebaseError.message ?? "Unknown error"
+        }`
+      );
     } finally {
       setLoading(false);
     }
@@ -290,7 +291,11 @@ export default function Register() {
           </section>
 
           {error && (
-            <div className="form-error" role="alert">
+            <div
+              className="form-error"
+              role="alert"
+              style={{ whiteSpace: "pre-line" }}
+            >
               {error}
             </div>
           )}
@@ -311,4 +316,4 @@ export default function Register() {
       </div>
     </main>
   );
-  }
+    }
