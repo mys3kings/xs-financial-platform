@@ -2,7 +2,6 @@ import { useState, type ReactNode } from "react";
 import {
   ArrowRight,
   BarChart3,
-  CheckCircle2,
   ChevronDown,
   Clock3,
   Menu,
@@ -11,7 +10,13 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { BrowserRouter, Link, Route, Routes, useNavigate } from "react-router-dom";
+import {
+  BrowserRouter,
+  Link,
+  Route,
+  Routes,
+  useNavigate,
+} from "react-router-dom";
 import Register from "./Register";
 
 function HomePage() {
@@ -43,7 +48,6 @@ function HomePage() {
 
   return (
     <div className="xs-app">
-      {/* NAVIGATION */}
       <header className="navbar">
         <div className="nav-inner">
           <a href="#home" className="brand">
@@ -104,7 +108,6 @@ function HomePage() {
         </div>
       </header>
 
-      {/* HERO */}
       <main>
         <section id="home" className="hero">
           <div className="hero-overlay" />
@@ -156,7 +159,6 @@ function HomePage() {
           </div>
         </section>
 
-        {/* ABOUT */}
         <section id="about" className="section">
           <div className="section-heading">
             <span className="eyebrow">ABOUT XS</span>
@@ -191,7 +193,6 @@ function HomePage() {
           </div>
         </section>
 
-        {/* HOW IT WORKS */}
         <section id="how-it-works" className="section section-dark">
           <div className="section-heading light">
             <span className="eyebrow">HOW IT WORKS</span>
@@ -222,7 +223,6 @@ function HomePage() {
           </div>
         </section>
 
-        {/* PLANS */}
         <section id="plans" className="section">
           <div className="section-heading">
             <span className="eyebrow">INVESTMENT</span>
@@ -240,7 +240,6 @@ function HomePage() {
             <div className="plan-top">
               <div>
                 <span className="plan-label">STANDARD CYCLE</span>
-
                 <h3>XS Investment</h3>
               </div>
 
@@ -291,7 +290,6 @@ function HomePage() {
           </div>
         </section>
 
-        {/* REFERRAL */}
         <section id="referral" className="section referral-section">
           <div className="referral-content">
             <div>
@@ -335,7 +333,6 @@ function HomePage() {
           </div>
         </section>
 
-        {/* FAQ */}
         <section id="faq" className="section">
           <div className="section-heading">
             <span className="eyebrow">FAQ</span>
@@ -369,7 +366,6 @@ function HomePage() {
         </section>
       </main>
 
-      {/* FOOTER */}
       <footer className="footer">
         <div>
           <div className="brand footer-brand">
@@ -456,3 +452,65 @@ function DashboardPlaceholder() {
         </Link>
       </div>
     </main>
+  );
+}
+
+function FeatureCard({
+  icon,
+  title,
+  text,
+}: {
+  icon: ReactNode;
+  title: string;
+  text: string;
+}) {
+  return (
+    <div className="feature-card">
+      <div className="feature-icon">{icon}</div>
+
+      <h3>{title}</h3>
+
+      <p>{text}</p>
+    </div>
+  );
+}
+
+function Step({
+  number,
+  title,
+  children,
+}: {
+  number: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="step">
+      <span className="step-number">{number}</span>
+
+      <h3>{title}</h3>
+
+      <p>{children}</p>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+
+        <Route path="/register" element={<Register />} />
+
+        <Route path="/login" element={<LoginPlaceholder />} />
+
+        <Route path="/dashboard" element={<DashboardPlaceholder />} />
+
+        <Route path="*" element={<HomePage />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default App;
