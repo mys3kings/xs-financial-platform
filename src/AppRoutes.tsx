@@ -7,18 +7,22 @@ import ForgotPassword from "./ForgotPassword";
 import Dashboard from "./Dashboard";
 import Deposit from "./Deposit";
 import Withdraw from "./Withdraw";
+import Referral from "./Referral";
 import ProtectedRoute from "./ProtectedRoute";
 
 export default function AppRoutes() {
   return (
     <Routes>
-      {/* PUBLIC ROUTES */}
+      {/* Public pages */}
       <Route path="/" element={<Home />} />
       <Route path="/register" element={<Register />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route
+        path="/forgot-password"
+        element={<ForgotPassword />}
+      />
 
-      {/* PROTECTED USER ROUTES */}
+      {/* Protected user pages */}
       <Route
         path="/dashboard"
         element={
@@ -46,7 +50,16 @@ export default function AppRoutes() {
         }
       />
 
-      {/* FALLBACK */}
+      <Route
+        path="/referral"
+        element={
+          <ProtectedRoute>
+            <Referral />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Fallback */}
       <Route path="*" element={<Home />} />
     </Routes>
   );
