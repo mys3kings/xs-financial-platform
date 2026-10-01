@@ -10,6 +10,7 @@ type InvestmentData = {
   investmentAmount?: number;
   dailyReturn?: number;
   totalReturns?: number;
+  cycleDays?: number;
   startedAt?: unknown;
   nextReturnAt?: unknown;
 };
@@ -21,16 +22,27 @@ type Countdown = {
   totalMilliseconds: number;
 };
 
-const DAILY_RETURN = 200;
-const INVESTMENT_AMOUNT = 500;
-const CYCLE_DAYS = 3;
-const CYCLE_TOTAL_RETURN = DAILY_RETURN * CYCLE_DAYS;
+/*
+ * XS INVESTMENT SETTINGS
+ *
+ * These are the default values for the current
+ * XS investment plan.
+ *
+ * The actual approved investment record in
+ * Firestore takes priority over these defaults.
+ */
+const DEFAULT_INVESTMENT_AMOUNT = 500;
+const DEFAULT_DAILY_RETURN = 200;
+const DEFAULT_CYCLE_DAYS = 3;
+const DEFAULT_CYCLE_TOTAL_RETURN =
+  DEFAULT_DAILY_RETURN * DEFAULT_CYCLE_DAYS;
 
 /*
  * Nigeria uses West Africa Time (WAT), UTC+1.
  *
- * This function gets the current Nigerian date/time regardless
- * of the user's phone or computer timezone.
+ * This function gets the current Nigerian
+ * calendar date and clock time regardless of
+ * the user's device timezone.
  */
 function getNigeriaNow(): Date {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -55,8 +67,10 @@ function getNigeriaNow(): Date {
   }
 
   /*
-   * Build a UTC timestamp representing the Nigerian clock.
-   * Nigeria is UTC+1, so subtract one hour.
+   * Create a Date representing the Nigerian clock.
+   *
+   * The constructed UTC timestamp is shifted back
+   * by one hour because Nigeria is UTC+1.
    */
   return new Date(
     Date.UTC(
@@ -72,46 +86,91 @@ function getNigeriaNow(): Date {
 }
 
 /*
- * Returns the next 12:00 AM Nigerian time.
+ * Get the next 12:00 AM Nigerian time.
  */
 function getNextNigeriaMidnight(): Date {
   const nigeriaNow = getNigeriaNow();
 
   const nextMidnight = new Date(nigeriaNow);
 
+  /*
+   * 23:00 UTC representation = 12:00 AM Nigeria time.
+   */
   nextMidnight.setUTCHours(23, 0, 0, 0);
 
-  if (nextMidnight.getTime() <= nigeriaNow.getTime()) {
-    nextMidnight.setUTCDate(nextMidnight.getUTCDate() + 1);
+  if (
+    nextMidnight.getTime() <=
+    nigeriaNow.getTime()
+  ) {
+    nextMidnight.setUTCDate(
+      nextMidnight.getUTCDate() + 1
+    );
   }
 
   return nextMidnight;
 }
 
-function calculateCountdown(target: Date): Countdown {
+/*
+ * Calculate the time remaining until the target.
+ */
+function calculateCountdown(
+  target: Date
+): Countdown {
   const nigeriaNow = getNigeriaNow();
 
   const difference = Math.max(
     0,
-    target.getTime() - nigeriaNow.getTime()
+    target.getTime() -
+      nigeriaNow.getTime()
   );
 
-  const totalSeconds = Math.floor(difference / 1000);
+  const totalSeconds = Math.floor(
+    difference / 1000
+  );
 
   return {
-    hours: Math.floor(totalSeconds / 3600),
-    minutes: Math.floor((totalSeconds % 3600) / 60),
+    hours: Math.floor(
+      totalSeconds / 3600
+    ),
+
+    minutes: Math.floor(
+      (totalSeconds % 3600) / 60
+    ),
+
     seconds: totalSeconds % 60,
+
     totalMilliseconds: difference,
   };
 }
 
+/*
+ * Always display countdown numbers as two digits.
+ */
 function pad(value: number): string {
   return String(value).padStart(2, "0");
 }
 
-function formatDate(value: unknown): string {
-  if (!value) return "—";
+/*
+ * Format money using Nigerian Naira formatting.
+ */
+function formatMoney(
+  value: number
+): string {
+  return Number(value || 0).toLocaleString(
+    "en-NG"
+  );
+}
+
+/*
+ * Safely format Firebase timestamps,
+ * JavaScript Dates, strings and numbers.
+ */
+function formatDate(
+  value: unknown
+): string {
+  if (!value) {
+    return "—";
+  }
 
   try {
     let date: Date | null = null;
@@ -120,66 +179,68 @@ function formatDate(value: unknown): string {
       typeof value === "object" &&
       value !== null &&
       "toDate" in value &&
-      typeof (value as { toDate?: unknown }).toDate === "function"
+      typeof (
+        value as {
+          toDate?: unknown;
+        }
+      ).toDate === "function"
     ) {
-      date = (value as { toDate: () => Date }).toDate();
+      date = (
+        value as {
+          toDate: () => Date;
+        }
+      ).toDate();
     } else if (value instanceof Date) {
       date = value;
-    } else if (typeof value === "string") {
+    } else if (
+      typeof value === "string"
+    ) {
       date = new Date(value);
-    } else if (typeof value === "number") {
+    } else if (
+      typeof value === "number"
+    ) {
       date = new Date(value);
     }
 
-    if (!date || Number.isNaN(date.getTime())) {
+    if (
+      !date ||
+      Number.isNaN(date.getTime())
+    ) {
       return "—";
     }
 
-    return new Intl.DateTimeFormat("en-NG", {
-      timeZone: "Africa/Lagos",
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    }).format(date);
+    return new Intl.DateTimeFormat(
+      "en-NG",
+      {
+        timeZone: "Africa/Lagos",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      }
+    ).format(date);
   } catch {
     return "—";
   }
 }
 
-/*
- * PLACEHOLDER FOR FUTURE SERVER-SIDE RETURN PROCESSING
- *
- * Do NOT credit money from this browser function.
- *
- * Later, the trusted server-side processor can be connected
- * here without changing the Investment page UI.
- */
-async function processDailyReturn(): Promise<void> {
-  // Intentionally empty for now.
-  //
-  // Future server-side implementation:
-  //
-  // 1. Verify the investment is active.
-  // 2. Verify that today's return has not already been credited.
-  // 3. Credit ₦200 to the user's balance.
-  // 4. Record the transaction.
-  // 5. Update the next return time.
-}
-
 export default function Investment() {
   const navigate = useNavigate();
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] =
+    useState(true);
 
   const [investment, setInvestment] =
     useState<InvestmentData | null>(null);
 
-  const [countdown, setCountdown] = useState<Countdown>(() =>
-    calculateCountdown(getNextNigeriaMidnight())
-  );
+  const [countdown, setCountdown] =
+    useState<Countdown>(() =>
+      calculateCountdown(
+        getNextNigeriaMidnight()
+      )
+    );
 
   const [currentNigeriaTime, setCurrentNigeriaTime] =
     useState("");
@@ -188,116 +249,131 @@ export default function Investment() {
     useState("");
 
   /*
-   * Authenticate the user and load their investment.
+   * Authenticate the user and load their
+   * approved investment from Firestore.
    *
-   * This page only READS the investment record.
-   * It does not modify the investment or balance.
+   * This page only READS the investment.
+   * It does not change the user's balance.
    */
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      async (user) => {
-        if (!user) {
-          navigate("/login", { replace: true });
-          return;
-        }
+    const unsubscribe =
+      onAuthStateChanged(
+        auth,
+        async (user) => {
+          if (!user) {
+            navigate("/login", {
+              replace: true,
+            });
 
-        try {
-          const investmentRef = doc(
-            db,
-            "investments",
-            user.uid
-          );
-
-          const snapshot = await getDoc(investmentRef);
-
-          if (snapshot.exists()) {
-            setInvestment(
-              snapshot.data() as InvestmentData
-            );
-          } else {
-            setInvestment(null);
+            return;
           }
-        } catch (error) {
-          console.error(
-            "Investment loading error:",
-            error
-          );
 
-          setInvestment(null);
-        } finally {
-          setLoading(false);
+          try {
+            const investmentRef =
+              doc(
+                db,
+                "investments",
+                user.uid
+              );
+
+            const snapshot =
+              await getDoc(
+                investmentRef
+              );
+
+            if (snapshot.exists()) {
+              setInvestment(
+                snapshot.data() as InvestmentData
+              );
+            } else {
+              setInvestment(null);
+            }
+          } catch (error) {
+            console.error(
+              "Investment loading error:",
+              error
+            );
+
+            setInvestment(null);
+          } finally {
+            setLoading(false);
+          }
         }
-      }
-    );
+      );
 
     return () => unsubscribe();
   }, [navigate]);
 
   /*
-   * Nigeria-time countdown.
+   * Nigerian-time countdown.
    *
-   * Important:
-   * We do NOT credit the ₦200 here.
-   *
-   * When midnight arrives, this only informs the user
-   * that the return is due for server-side processing.
+   * The countdown is recalculated every second,
+   * so it does not depend on the user's local
+   * timezone.
    */
   useEffect(() => {
     let previousNigeriaDate = "";
 
     function updateClock() {
-      const nigeriaNow = getNigeriaNow();
+      const nigeriaNow =
+        getNigeriaNow();
 
       const dateKey = [
         nigeriaNow.getUTCFullYear(),
-        String(nigeriaNow.getUTCMonth() + 1).padStart(
-          2,
-          "0"
-        ),
-        String(nigeriaNow.getUTCDate()).padStart(
-          2,
-          "0"
-        ),
+
+        String(
+          nigeriaNow.getUTCMonth() + 1
+        ).padStart(2, "0"),
+
+        String(
+          nigeriaNow.getUTCDate()
+        ).padStart(2, "0"),
       ].join("-");
 
+      /*
+       * Display the current Nigerian time.
+       */
       setCurrentNigeriaTime(
-        new Intl.DateTimeFormat("en-NG", {
-          timeZone: "Africa/Lagos",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: true,
-        }).format(new Date())
-      );
-
-      const nextMidnight = getNextNigeriaMidnight();
-
-      setCountdown(
-        calculateCountdown(nextMidnight)
+        new Intl.DateTimeFormat(
+          "en-NG",
+          {
+            timeZone: "Africa/Lagos",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: true,
+          }
+        ).format(new Date())
       );
 
       /*
-       * Detect the change to a new Nigerian calendar day.
+       * Always calculate the next Nigerian midnight.
+       */
+      const nextMidnight =
+        getNextNigeriaMidnight();
+
+      setCountdown(
+        calculateCountdown(
+          nextMidnight
+        )
+      );
+
+      /*
+       * Detect when Nigeria moves into
+       * a new calendar day.
        *
-       * This is safer than waiting for the countdown to equal
-       * exactly zero because a one-second interval can skip it.
+       * We do not credit money here.
+       * Actual balance processing must be
+       * handled by a trusted system.
        */
       if (
         previousNigeriaDate &&
-        previousNigeriaDate !== dateKey
+        previousNigeriaDate !==
+          dateKey
       ) {
         setReturnDueMessage(
-          "A new Nigerian day has started. Your ₦200 daily return is now due for processing."
+          "A new Nigerian day has started. Your daily return is now due for processing."
         );
-
-        /*
-         * Deliberately NOT calling processDailyReturn()
-         * from the browser.
-         *
-         * The future trusted server-side processor will handle
-         * the actual balance credit.
-         */
       }
 
       previousNigeriaDate = dateKey;
@@ -305,35 +381,67 @@ export default function Investment() {
 
     updateClock();
 
-    const interval = window.setInterval(
-      updateClock,
-      1000
-    );
+    const interval =
+      window.setInterval(
+        updateClock,
+        1000
+      );
 
     return () => {
-      window.clearInterval(interval);
+      window.clearInterval(
+        interval
+      );
     };
   }, []);
 
-  const investmentAmount = useMemo(() => {
-    return (
-      investment?.investmentAmount ??
-      investment?.principalAmount ??
-      INVESTMENT_AMOUNT
-    );
-  }, [investment]);
+  /*
+   * Use the approved investment amount
+   * from Firestore when available.
+   */
+  const investmentAmount =
+    useMemo(() => {
+      return (
+        investment?.investmentAmount ??
+        investment?.principalAmount ??
+        DEFAULT_INVESTMENT_AMOUNT
+      );
+    }, [investment]);
 
+  /*
+   * Use the approved daily return from
+   * Firestore when available.
+   */
   const dailyReturn =
-    investment?.dailyReturn ?? DAILY_RETURN;
+    investment?.dailyReturn ??
+    DEFAULT_DAILY_RETURN;
 
+  /*
+   * Use the approved total return from
+   * Firestore when available.
+   */
   const totalReturns =
     investment?.totalReturns ??
-    CYCLE_TOTAL_RETURN;
+    DEFAULT_CYCLE_TOTAL_RETURN;
 
+  /*
+   * Use the investment's cycle duration
+   * when it exists.
+   */
+  const cycleDays =
+    investment?.cycleDays ??
+    DEFAULT_CYCLE_DAYS;
+
+  /*
+   * Only an ACTIVE investment should
+   * display the active investment screen.
+   */
   const isActive =
     investment?.status?.toUpperCase() ===
     "ACTIVE";
 
+  /*
+   * Loading screen.
+   */
   if (loading) {
     return (
       <main className="investment-page">
@@ -348,6 +456,9 @@ export default function Investment() {
     );
   }
 
+  /*
+   * No investment / inactive investment.
+   */
   if (!investment || !isActive) {
     return (
       <main className="investment-page">
@@ -356,6 +467,7 @@ export default function Investment() {
             <Link
               to="/dashboard"
               className="investment-brand"
+              aria-label="Return to dashboard"
             >
               <span className="investment-brand-x">
                 X
@@ -385,10 +497,11 @@ export default function Investment() {
             </h1>
 
             <p>
-              Your investment has not been
-              activated yet. Make a minimum
-              deposit of ₦500 and wait for
-              administrator approval.
+              Your investment has not
+              been activated yet. Make
+              a minimum deposit of ₦500
+              and wait for administrator
+              approval.
             </p>
 
             <Link
@@ -410,6 +523,9 @@ export default function Investment() {
     );
   }
 
+  /*
+   * ACTIVE INVESTMENT SCREEN
+   */
   return (
     <main className="investment-page">
       <div className="investment-background" />
@@ -458,13 +574,14 @@ export default function Investment() {
               </h1>
 
               <p className="investment-subtitle">
-                Your investment is currently
-                active.
+                Your investment is
+                currently active.
               </p>
             </div>
 
             <span className="investment-status">
               <span className="investment-status-dot" />
+
               ACTIVE
             </span>
           </div>
@@ -482,13 +599,22 @@ export default function Investment() {
               <div className="countdown-ring">
                 <div className="countdown-inner">
                   <span className="countdown-time">
-                    {pad(countdown.hours)}:
-                    {pad(countdown.minutes)}:
-                    {pad(countdown.seconds)}
+                    {pad(
+                      countdown.hours
+                    )}
+                    :
+                    {pad(
+                      countdown.minutes
+                    )}
+                    :
+                    {pad(
+                      countdown.seconds
+                    )}
                   </span>
 
                   <span className="countdown-caption">
-                    HOURS : MINUTES : SECONDS
+                    HOURS : MINUTES :
+                    SECONDS
                   </span>
                 </div>
               </div>
@@ -505,7 +631,8 @@ export default function Investment() {
             </div>
 
             <p className="midnight-message">
-              Daily return is scheduled for
+              Daily return is
+              scheduled for
               <strong>
                 {" "}
                 12:00 AM WAT
@@ -523,9 +650,9 @@ export default function Investment() {
 
               <strong>
                 ₦
-                {Number(
+                {formatMoney(
                   dailyReturn
-                ).toLocaleString()}
+                )}
               </strong>
 
               <p>
@@ -547,9 +674,9 @@ export default function Investment() {
 
               <strong>
                 ₦
-                {Number(
+                {formatMoney(
                   investmentAmount
-                ).toLocaleString()}
+                )}
               </strong>
             </div>
 
@@ -560,22 +687,23 @@ export default function Investment() {
 
               <strong>
                 ₦
-                {Number(
+                {formatMoney(
                   dailyReturn
-                ).toLocaleString()}
+                )}
               </strong>
             </div>
 
             <div className="investment-detail">
               <span>
-                3-day cycle return
+                {cycleDays}-day cycle
+                return
               </span>
 
               <strong>
                 ₦
-                {Number(
+                {formatMoney(
                   totalReturns
-                ).toLocaleString()}
+                )}
               </strong>
             </div>
 
@@ -585,7 +713,7 @@ export default function Investment() {
               </span>
 
               <strong>
-                {CYCLE_DAYS} Days
+                {cycleDays} Days
               </strong>
             </div>
           </section>
@@ -606,15 +734,17 @@ export default function Investment() {
           {/* INFORMATION */}
           <section className="investment-notice">
             <strong>
-              Your investment is currently
-              active.
+              Your investment is
+              currently active.
             </strong>
 
             <p>
-              The countdown follows Nigeria's
-              West Africa Time (WAT). The next
-              daily return is scheduled for
-              12:00 AM Nigerian time.
+              The countdown follows
+              Nigeria's West Africa
+              Time (WAT). The next
+              daily return is scheduled
+              for 12:00 AM Nigerian
+              time.
             </p>
           </section>
 
