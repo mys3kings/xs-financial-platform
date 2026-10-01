@@ -16,11 +16,14 @@ export default function Dashboard() {
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        navigate("/login");
+        setProfile(null);
+        setLoading(false);
+        navigate("/login", { replace: true });
         return;
       }
 
@@ -52,11 +55,17 @@ export default function Dashboard() {
   }, [navigate]);
 
   async function handleLogout() {
+    if (loggingOut) return;
+
     try {
+      setLoggingOut(true);
+
       await signOut(auth);
-      navigate("/login");
+
+      navigate("/login", { replace: true });
     } catch (error) {
       console.error("Logout error:", error);
+      setLoggingOut(false);
     }
   }
 
@@ -88,8 +97,10 @@ export default function Dashboard() {
           type="button"
           className="dashboard-logout"
           onClick={handleLogout}
+          disabled={loggingOut}
+          aria-busy={loggingOut}
         >
-          Logout
+          {loggingOut ? "Logging out..." : "Logout"}
         </button>
       </header>
 
@@ -99,9 +110,7 @@ export default function Dashboard() {
           <div>
             <p className="dashboard-eyebrow">XS COMPANY LIMITED</p>
 
-            <h1>
-              Welcome back, {firstName}
-            </h1>
+            <h1>Welcome back, {firstName}</h1>
 
             <p>
               Manage your account, investment and referrals from your
@@ -282,4 +291,4 @@ export default function Dashboard() {
       </div>
     </main>
   );
-}
+                                           }
