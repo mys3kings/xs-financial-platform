@@ -1,6 +1,6 @@
 import { Routes, Route } from "react-router-dom";
 
-import HomePage from "./App";
+import Home from "./Home";
 import Register from "./Register";
 import Login from "./Login";
 import ForgotPassword from "./ForgotPassword";
@@ -11,21 +11,20 @@ import ProtectedRoute from "./ProtectedRoute";
 export default function AppRoutes() {
   return (
     <Routes>
-      {/* =========================
-          PUBLIC PAGES
-      ========================== */}
+      {/* PUBLIC PAGES */}
 
-      <Route path="/" element={<HomePage />} />
+      <Route path="/" element={<Home />} />
 
       <Route path="/register" element={<Register />} />
 
       <Route path="/login" element={<Login />} />
 
-      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route
+        path="/forgot-password"
+        element={<ForgotPassword />}
+      />
 
-      {/* =========================
-          PROTECTED USER PAGES
-      ========================== */}
+      {/* PROTECTED USER PAGES */}
 
       <Route
         path="/dashboard"
@@ -45,11 +44,9 @@ export default function AppRoutes() {
         }
       />
 
-      {/* =========================
-          FALLBACK
-      ========================== */}
+      {/* FALLBACK */}
 
-      <Route path="*" element={<HomePage />} />
+      <Route path="*" element={<Home />} />
     </Routes>
   );
-      }
+}
