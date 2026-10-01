@@ -8,21 +8,49 @@ import Dashboard from "./Dashboard";
 import Deposit from "./Deposit";
 import Withdraw from "./Withdraw";
 import Referral from "./Referral";
+import Admin from "./Admin";
 import ProtectedRoute from "./ProtectedRoute";
 
 export default function AppRoutes() {
   return (
     <Routes>
-      {/* Public pages */}
-      <Route path="/" element={<Home />} />
-      <Route path="/register" element={<Register />} />
-      <Route path="/login" element={<Login />} />
+      {/* -------------------------------- */}
+      {/* PUBLIC PAGES */}
+      {/* -------------------------------- */}
+
+      <Route
+        path="/"
+        element={<Home />}
+      />
+
+      <Route
+        path="/register"
+        element={<Register />}
+      />
+
+      <Route
+        path="/login"
+        element={<Login />}
+      />
+
       <Route
         path="/forgot-password"
         element={<ForgotPassword />}
       />
 
-      {/* Protected user pages */}
+      {/* -------------------------------- */}
+      {/* ADMIN PAGE */}
+      {/* -------------------------------- */}
+
+      <Route
+        path="/admin"
+        element={<Admin />}
+      />
+
+      {/* -------------------------------- */}
+      {/* PROTECTED USER PAGES */}
+      {/* -------------------------------- */}
+
       <Route
         path="/dashboard"
         element={
@@ -59,8 +87,14 @@ export default function AppRoutes() {
         }
       />
 
-      {/* Fallback */}
-      <Route path="*" element={<Home />} />
+      {/* -------------------------------- */}
+      {/* FALLBACK */}
+      {/* -------------------------------- */}
+
+      <Route
+        path="*"
+        element={<Home />}
+      />
     </Routes>
   );
-        }
+}
