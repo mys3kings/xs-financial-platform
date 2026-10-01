@@ -5,6 +5,7 @@ import {
   orderBy,
   query,
   doc,
+  getDoc,
   setDoc,
   updateDoc,
   serverTimestamp,
@@ -90,6 +91,31 @@ type Deposit = {
 };
 
 // --------------------------------------------------
+// WITHDRAWAL TYPE
+// --------------------------------------------------
+
+type Withdrawal = {
+  id: string;
+  userId?: string;
+  userFullName?: string;
+  userEmail?: string;
+  amount?: number;
+  currency?: string;
+  bankName?: string;
+  accountNumber?: string;
+  accountHolderName?: string;
+  reference?: string;
+  status?: string;
+  createdAt?: any;
+  reviewedAt?: any;
+  reviewedBy?: string | null;
+  paidAt?: any;
+  paidBy?: string | null;
+  paymentReference?: string | null;
+  rejectionReason?: string | null;
+};
+
+// --------------------------------------------------
 // ADMIN COMPONENT
 // --------------------------------------------------
 
@@ -107,6 +133,9 @@ export default function Admin() {
   const [deposits, setDeposits] =
     useState<Deposit[]>([]);
 
+  const [withdrawals, setWithdrawals] =
+    useState<Withdrawal[]>([]);
+
   const [loading, setLoading] =
     useState(false);
 
@@ -118,6 +147,20 @@ export default function Admin() {
 
   const [error, setError] =
     useState("");
+
+  // --------------------------------------------------
+  // WITHDRAWAL PORTAL LOCK STATE
+  // --------------------------------------------------
+
+  const [
+    withdrawalPortalLocked,
+    setWithdrawalPortalLocked,
+  ] = useState(false);
+
+  const [
+    withdrawalPortalLoading,
+    setWithdrawalPortalLoading,
+  ] = useState(false);
 
   // --------------------------------------------------
   // ADMIN LOGIN
@@ -146,36 +189,112 @@ export default function Admin() {
   // --------------------------------------------------
 
   async function loadDeposits() {
-    try {
-      setLoading(true);
-      setError("");
+    const depositsQuery = query(
+      collection(db, "deposits"),
+      orderBy("createdAt", "desc")
+    );
 
-      const depositsQuery = query(
-        collection(db, "deposits"),
-        orderBy("createdAt", "desc")
+    const snapshot =
+      await getDocs(depositsQuery);
+
+    const depositList: Deposit[] =
+      snapshot.docs.map((depositDoc) => ({
+        id: depositDoc.id,
+        ...(depositDoc.data() as Omit<
+          Deposit,
+          "id"
+        >),
+      }));
+
+    setDeposits(depositList);
+  }
+
+  // --------------------------------------------------
+  // LOAD WITHDRAWALS
+  // --------------------------------------------------
+
+  async function loadWithdrawals() {
+    const withdrawalsQuery = query(
+      collection(db, "withdrawals"),
+      orderBy("createdAt", "desc")
+    );
+
+    const snapshot =
+      await getDocs(withdrawalsQuery);
+
+    const withdrawalList: Withdrawal[] =
+      snapshot.docs.map((withdrawalDoc) => ({
+        id: withdrawalDoc.id,
+        ...(withdrawalDoc.data() as Omit<
+          Withdrawal,
+          "id"
+        >),
+      }));
+
+    setWithdrawals(withdrawalList);
+  }
+
+  // --------------------------------------------------
+  // LOAD WITHDRAWAL PORTAL STATUS
+  // --------------------------------------------------
+
+  async function loadWithdrawalPortalStatus() {
+    try {
+      const settingsRef = doc(
+        db,
+        "settings",
+        "withdrawalPortal"
       );
 
       const snapshot =
-        await getDocs(depositsQuery);
+        await getDoc(settingsRef);
 
-      const depositList: Deposit[] =
-        snapshot.docs.map((depositDoc) => ({
-          id: depositDoc.id,
-          ...(depositDoc.data() as Omit<
-            Deposit,
-            "id"
-          >),
-        }));
+      if (snapshot.exists()) {
+        const data = snapshot.data();
 
-      setDeposits(depositList);
+        setWithdrawalPortalLocked(
+          data.locked === true
+        );
+      } else {
+        // If the setting doesn't exist yet,
+        // the withdrawal portal is open.
+        setWithdrawalPortalLocked(false);
+      }
     } catch (err) {
       console.error(
-        "Admin deposit loading error:",
+        "Withdrawal portal status error:",
+        err
+      );
+
+      throw new Error(
+        "Unable to load withdrawal portal status."
+      );
+    }
+  }
+
+  // --------------------------------------------------
+  // LOAD EVERYTHING
+  // --------------------------------------------------
+
+  async function loadAdminData() {
+    try {
+      setLoading(true);
+      setError("");
+      setMessage("");
+
+      await Promise.all([
+        loadDeposits(),
+        loadWithdrawals(),
+        loadWithdrawalPortalStatus(),
+      ]);
+    } catch (err) {
+      console.error(
+        "Admin data loading error:",
         err
       );
 
       setError(
-        "Unable to load deposits. Check your Firestore permissions and configuration."
+        "Unable to load admin data. Check your Firestore permissions and configuration."
       );
     } finally {
       setLoading(false);
@@ -185,8 +304,76 @@ export default function Admin() {
   useEffect(() => {
     if (!authenticated) return;
 
-    loadDeposits();
+    loadAdminData();
   }, [authenticated]);
+
+  // --------------------------------------------------
+  // LOCK / UNLOCK WITHDRAWAL PORTAL
+  // --------------------------------------------------
+
+  async function toggleWithdrawalPortal() {
+    const newLockedState =
+      !withdrawalPortalLocked;
+
+    const actionText = newLockedState
+      ? "lock"
+      : "unlock";
+
+    const confirmed = window.confirm(
+      `Are you sure you want to ${actionText} the withdrawal portal?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setWithdrawalPortalLoading(true);
+      setError("");
+      setMessage("");
+
+      const settingsRef = doc(
+        db,
+        "settings",
+        "withdrawalPortal"
+      );
+
+      await setDoc(
+        settingsRef,
+        {
+          locked: newLockedState,
+          updatedAt: serverTimestamp(),
+          updatedBy: "admin",
+        },
+        {
+          merge: true,
+        }
+      );
+
+      setWithdrawalPortalLocked(
+        newLockedState
+      );
+
+      if (newLockedState) {
+        setMessage(
+          "Withdrawal portal has been locked. Users will no longer be able to submit withdrawal requests."
+        );
+      } else {
+        setMessage(
+          "Withdrawal portal has been unlocked. Users can submit withdrawal requests again."
+        );
+      }
+    } catch (err) {
+      console.error(
+        "Withdrawal portal update error:",
+        err
+      );
+
+      setError(
+        "The withdrawal portal status could not be changed. Check your Firestore permissions."
+      );
+    } finally {
+      setWithdrawalPortalLoading(false);
+    }
+  }
 
   // --------------------------------------------------
   // APPROVE DEPOSIT
@@ -195,7 +382,6 @@ export default function Admin() {
   async function approveDeposit(
     deposit: Deposit
   ) {
-    // Validate user ID
     if (!deposit.userId) {
       setError(
         "This deposit does not have a valid user ID."
@@ -203,7 +389,6 @@ export default function Admin() {
       return;
     }
 
-    // Validate amount
     if (
       typeof deposit.amount !== "number" ||
       !Number.isFinite(deposit.amount) ||
@@ -217,7 +402,6 @@ export default function Admin() {
       return;
     }
 
-    // Prevent duplicate approval
     if (
       deposit.status?.toLowerCase() ===
       "approved"
@@ -228,7 +412,6 @@ export default function Admin() {
       return;
     }
 
-    // Prevent approving rejected request
     if (
       deposit.status?.toLowerCase() ===
       "rejected"
@@ -254,16 +437,8 @@ export default function Admin() {
       setError("");
       setMessage("");
 
-      // ------------------------------------------------
-      // CALCULATE NEXT NIGERIAN MIDNIGHT
-      // ------------------------------------------------
-
       const nextNigeriaMidnight =
         getNextNigeriaMidnight();
-
-      // ------------------------------------------------
-      // CREATE / ACTIVATE INVESTMENT
-      // ------------------------------------------------
 
       const investmentRef = doc(
         db,
@@ -294,8 +469,6 @@ export default function Admin() {
           startedAt:
             serverTimestamp(),
 
-          // Next return is the next
-          // 12:00 AM Nigerian time.
           nextReturnAt:
             nextNigeriaMidnight,
 
@@ -315,10 +488,6 @@ export default function Admin() {
           merge: true,
         }
       );
-
-      // ------------------------------------------------
-      // MARK DEPOSIT APPROVED
-      // ------------------------------------------------
 
       const depositRef = doc(
         db,
@@ -343,7 +512,7 @@ export default function Admin() {
         "Deposit approved and investment activated successfully."
       );
 
-      await loadDeposits();
+      await loadAdminData();
     } catch (err) {
       console.error(
         "Deposit approval error:",
@@ -365,7 +534,6 @@ export default function Admin() {
   async function rejectDeposit(
     deposit: Deposit
   ) {
-    // Prevent rejecting approved request
     if (
       deposit.status?.toLowerCase() ===
       "approved"
@@ -376,7 +544,6 @@ export default function Admin() {
       return;
     }
 
-    // Prevent duplicate rejection
     if (
       deposit.status?.toLowerCase() ===
       "rejected"
@@ -423,7 +590,7 @@ export default function Admin() {
         "Deposit request rejected."
       );
 
-      await loadDeposits();
+      await loadAdminData();
     } catch (err) {
       console.error(
         "Deposit rejection error:",
@@ -432,6 +599,222 @@ export default function Admin() {
 
       setError(
         "The deposit could not be rejected."
+      );
+    } finally {
+      setProcessingId("");
+    }
+  }
+
+  // --------------------------------------------------
+  // PROCESS WITHDRAWAL
+  // --------------------------------------------------
+
+  async function processWithdrawal(
+    withdrawal: Withdrawal
+  ) {
+    if (!withdrawal.userId) {
+      setError(
+        "This withdrawal does not have a valid user ID."
+      );
+      return;
+    }
+
+    if (
+      typeof withdrawal.amount !== "number" ||
+      !Number.isFinite(withdrawal.amount) ||
+      withdrawal.amount < 500
+    ) {
+      setError(
+        "This withdrawal amount is invalid."
+      );
+      return;
+    }
+
+    if (
+      withdrawal.status?.toUpperCase() !==
+      "PENDING"
+    ) {
+      setError(
+        "Only pending withdrawals can be processed."
+      );
+      return;
+    }
+
+    const paymentReference =
+      window.prompt(
+        "Enter the payment reference or transaction reference used to send the money:"
+      );
+
+    if (
+      paymentReference === null
+    ) {
+      return;
+    }
+
+    const cleanedReference =
+      paymentReference.trim();
+
+    if (!cleanedReference) {
+      setError(
+        "A payment reference is required before marking the withdrawal as paid."
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Confirm that ${formatMoney(
+        withdrawal.amount
+      )} has been sent to ${
+        withdrawal.accountHolderName ||
+        withdrawal.userFullName ||
+        "this user"
+      }?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setProcessingId(
+        withdrawal.id
+      );
+      setError("");
+      setMessage("");
+
+      const withdrawalRef = doc(
+        db,
+        "withdrawals",
+        withdrawal.id
+      );
+
+      await updateDoc(
+        withdrawalRef,
+        {
+          status: "PAID",
+
+          reviewedAt:
+            serverTimestamp(),
+
+          reviewedBy:
+            "admin",
+
+          paidAt:
+            serverTimestamp(),
+
+          paidBy:
+            "admin",
+
+          paymentReference:
+            cleanedReference,
+        }
+      );
+
+      setMessage(
+        "Withdrawal marked as paid successfully."
+      );
+
+      await loadAdminData();
+    } catch (err) {
+      console.error(
+        "Withdrawal processing error:",
+        err
+      );
+
+      setError(
+        "The withdrawal could not be marked as paid."
+      );
+    } finally {
+      setProcessingId("");
+    }
+  }
+
+  // --------------------------------------------------
+  // REJECT WITHDRAWAL
+  // --------------------------------------------------
+
+  async function rejectWithdrawal(
+    withdrawal: Withdrawal
+  ) {
+    if (
+      withdrawal.status?.toUpperCase() !==
+      "PENDING"
+    ) {
+      setError(
+        "Only pending withdrawals can be rejected."
+      );
+      return;
+    }
+
+    const rejectionReason =
+      window.prompt(
+        "Enter the reason for rejecting this withdrawal:"
+      );
+
+    if (
+      rejectionReason === null
+    ) {
+      return;
+    }
+
+    const cleanedReason =
+      rejectionReason.trim();
+
+    if (!cleanedReason) {
+      setError(
+        "Please enter a rejection reason."
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Reject the withdrawal of ${formatMoney(
+        withdrawal.amount || 0
+      )}?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setProcessingId(
+        withdrawal.id
+      );
+      setError("");
+      setMessage("");
+
+      const withdrawalRef = doc(
+        db,
+        "withdrawals",
+        withdrawal.id
+      );
+
+      await updateDoc(
+        withdrawalRef,
+        {
+          status: "REJECTED",
+
+          reviewedAt:
+            serverTimestamp(),
+
+          reviewedBy:
+            "admin",
+
+          rejectionReason:
+            cleanedReason,
+        }
+      );
+
+      setMessage(
+        "Withdrawal request rejected."
+      );
+
+      await loadAdminData();
+    } catch (err) {
+      console.error(
+        "Withdrawal rejection error:",
+        err
+      );
+
+      setError(
+        "The withdrawal could not be rejected."
       );
     } finally {
       setProcessingId("");
@@ -508,7 +891,9 @@ export default function Admin() {
   if (!authenticated) {
     return (
       <main className="admin-page">
+
         <div className="admin-login-card">
+
           <div className="admin-logo">
             X
           </div>
@@ -530,6 +915,7 @@ export default function Admin() {
             onSubmit={handleAdminLogin}
             className="admin-login-form"
           >
+
             <label>
               Admin password
 
@@ -562,6 +948,7 @@ export default function Admin() {
             >
               Enter Admin Panel
             </button>
+
           </form>
 
           <Link
@@ -570,7 +957,9 @@ export default function Admin() {
           >
             ← Back to dashboard
           </Link>
+
         </div>
+
       </main>
     );
   }
@@ -587,7 +976,7 @@ export default function Admin() {
     );
 
   const approvedDeposits =
-    deposits.filter(
+     deposits.filter(
       (deposit) =>
         deposit.status?.toLowerCase() ===
         "approved"
@@ -598,6 +987,31 @@ export default function Admin() {
       (deposit) =>
         deposit.status?.toLowerCase() ===
         "rejected"
+    );
+
+  // --------------------------------------------------
+  // FILTER WITHDRAWALS
+  // --------------------------------------------------
+
+  const pendingWithdrawals =
+    withdrawals.filter(
+      (withdrawal) =>
+        withdrawal.status?.toUpperCase() ===
+        "PENDING"
+    );
+
+  const paidWithdrawals =
+    withdrawals.filter(
+      (withdrawal) =>
+        withdrawal.status?.toUpperCase() ===
+        "PAID"
+    );
+
+  const rejectedWithdrawals =
+    withdrawals.filter(
+      (withdrawal) =>
+        withdrawal.status?.toUpperCase() ===
+        "REJECTED"
     );
 
   // --------------------------------------------------
@@ -665,8 +1079,8 @@ export default function Admin() {
           </h1>
 
           <p>
-            Manage deposit requests and
-            investment activation.
+            Manage deposits, withdrawals and
+            portal availability.
           </p>
 
         </section>
@@ -676,7 +1090,6 @@ export default function Admin() {
         <section className="admin-summary">
 
           <div className="admin-stat-card">
-
             <span>
               Pending deposits
             </span>
@@ -684,11 +1097,9 @@ export default function Admin() {
             <strong>
               {pendingDeposits.length}
             </strong>
-
           </div>
 
           <div className="admin-stat-card">
-
             <span>
               Approved deposits
             </span>
@@ -696,19 +1107,26 @@ export default function Admin() {
             <strong>
               {approvedDeposits.length}
             </strong>
-
           </div>
 
           <div className="admin-stat-card">
-
             <span>
-              Rejected deposits
+              Pending withdrawals
             </span>
 
             <strong>
-              {rejectedDeposits.length}
+              {pendingWithdrawals.length}
             </strong>
+          </div>
 
+          <div className="admin-stat-card">
+            <span>
+              Paid withdrawals
+            </span>
+
+            <strong>
+              {paidWithdrawals.length}
+            </strong>
           </div>
 
         </section>
@@ -735,6 +1153,78 @@ export default function Admin() {
           </div>
         )}
 
+        {/* WITHDRAWAL PORTAL CONTROL */}
+
+        <section className="admin-section">
+
+          <div className="admin-section-header">
+
+            <div>
+
+              <p className="dashboard-eyebrow">
+                WITHDRAWALS
+              </p>
+
+              <h2>
+                Withdrawal portal
+              </h2>
+
+              <p>
+                Control whether users can submit
+                new withdrawal requests.
+              </p>
+
+            </div>
+
+          </div>
+
+          <div className="admin-portal-control">
+
+            <div>
+
+              <span>
+                Current status
+              </span>
+
+              <strong>
+                {withdrawalPortalLocked
+                  ? "🔒 Withdrawal portal locked"
+                  : "🟢 Withdrawal portal open"}
+              </strong>
+
+              <p>
+                {withdrawalPortalLocked
+                  ? "Users will see that withdrawals are currently unavailable."
+                  : "Users can currently access and submit withdrawal requests."}
+              </p>
+
+            </div>
+
+            <button
+              type="button"
+              className={
+                withdrawalPortalLocked
+                  ? "admin-approve-button"
+                  : "admin-reject-button"
+              }
+              onClick={
+                toggleWithdrawalPortal
+              }
+              disabled={
+                withdrawalPortalLoading
+              }
+            >
+              {withdrawalPortalLoading
+                ? "Updating..."
+                : withdrawalPortalLocked
+                ? "Unlock withdrawal portal"
+                : "Lock withdrawal portal"}
+            </button>
+
+          </div>
+
+        </section>
+
         {/* PENDING DEPOSITS */}
 
         <section className="admin-section">
@@ -756,7 +1246,7 @@ export default function Admin() {
             <button
               type="button"
               className="dashboard-secondary-button"
-              onClick={loadDeposits}
+              onClick={loadAdminData}
               disabled={loading}
             >
               {loading
@@ -925,6 +1415,234 @@ export default function Admin() {
 
         </section>
 
+        {/* PENDING WITHDRAWALS */}
+
+        <section className="admin-section">
+
+          <div className="admin-section-header">
+
+            <div>
+
+              <p className="dashboard-eyebrow">
+                WITHDRAWALS
+              </p>
+
+              <h2>
+                Pending withdrawal requests
+              </h2>
+
+            </div>
+
+            <button
+              type="button"
+              className="dashboard-secondary-button"
+              onClick={loadAdminData}
+              disabled={loading}
+            >
+              {loading
+                ? "Refreshing..."
+                : "Refresh"}
+            </button>
+
+          </div>
+
+          {loading ? (
+
+            <div className="admin-empty-card">
+              Loading withdrawal requests...
+            </div>
+
+          ) : pendingWithdrawals.length === 0 ? (
+
+            <div className="admin-empty-card">
+
+              <strong>
+                No pending withdrawals
+              </strong>
+
+              <p>
+                New withdrawal requests will
+                appear here when users submit them.
+              </p>
+
+            </div>
+
+          ) : (
+
+            <div className="admin-deposit-list">
+
+              {pendingWithdrawals.map(
+                (withdrawal) => (
+
+                  <article
+                    key={withdrawal.id}
+                    className="admin-deposit-card"
+                  >
+
+                    <div className="admin-deposit-header">
+
+                      <div>
+
+                        <span>
+                          User
+                        </span>
+
+                        <strong>
+                          {withdrawal.userFullName ||
+                            "Unknown user"}
+                        </strong>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Amount
+                        </span>
+
+                        <strong>
+                          {formatMoney(
+                            withdrawal.amount || 0
+                          )}
+                        </strong>
+
+                      </div>
+
+                    </div>
+
+                    <div className="admin-deposit-details">
+
+                      <div>
+
+                        <span>
+                          Email
+                        </span>
+
+                        <p>
+                          {withdrawal.userEmail ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Bank
+                        </span>
+
+                        <p>
+                          {withdrawal.bankName ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Account number
+                        </span>
+
+                        <p>
+                          {withdrawal.accountNumber ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Account holder
+                        </span>
+
+                        <p>
+                          {withdrawal.accountHolderName ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Reference
+                        </span>
+
+                        <p>
+                          {withdrawal.reference ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Submitted
+                        </span>
+
+                        <p>
+                          {formatDate(
+                            withdrawal.createdAt
+                          )}
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                    <div className="admin-deposit-actions">
+
+                      <button
+                        type="button"
+                        className="admin-approve-button"
+                        onClick={() =>
+                          processWithdrawal(
+                            withdrawal
+                          )
+                        }
+                        disabled={
+                          processingId ===
+                          withdrawal.id
+                        }
+                      >
+                        {processingId ===
+                        withdrawal.id
+                          ? "Processing..."
+                          : "Mark as paid"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="admin-reject-button"
+                        onClick={() =>
+                          rejectWithdrawal(
+                            withdrawal
+                          )
+                        }
+                        disabled={
+                          processingId ===
+                          withdrawal.id
+                        }
+                      >
+                        Reject
+                      </button>
+
+                    </div>
+
+                  </article>
+
+                )
+              )}
+
+            </div>
+
+          )}
+
+        </section>
+
         {/* APPROVED DEPOSITS */}
 
         <section className="admin-section">
@@ -940,6 +1658,7 @@ export default function Admin() {
               <h2>
                 Approved deposits
               </h2>
+
             </div>
 
           </div>
@@ -949,45 +1668,407 @@ export default function Admin() {
             <div className="admin-empty-card">
 
               <strong>
-                No approved deposits yet
+                No approved deposits
               </strong>
 
             </div>
 
           ) : (
 
-            <div className="admin-history-list">
+            <div className="admin-deposit-list">
 
               {approvedDeposits.map(
                 (deposit) => (
 
-                  <div
+                  <article
                     key={deposit.id}
-                    className="admin-history-item"
+                    className="admin-deposit-card"
                   >
 
-                    <div>
+                    <div className="admin-deposit-header">
 
-                      <strong>
-                        {deposit.senderName ||
-                          "Unknown sender"}
-                      </strong>
+                      <div>
 
-                      <span>
-                        {formatDate(
-                          deposit.createdAt
-                        )}
-                      </span>
+                        <span>
+                          Sender name
+                        </span>
+
+                        <strong>
+                          {deposit.senderName ||
+                            "Not provided"}
+                        </strong>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Amount
+                        </span>
+
+                        <strong>
+                          {formatMoney(
+                            deposit.amount || 0
+                          )}
+                        </strong>
+
+                      </div>
 
                     </div>
 
-                    <strong>
-                      {formatMoney(
-                        deposit.amount || 0
-                      )}
-                    </strong>
+                    <div className="admin-deposit-details">
 
-                  </div>
+                      <div>
+
+                        <span>
+                          User ID
+                        </span>
+
+                        <p>
+                          {deposit.userId ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Approved
+                        </span>
+
+                        <p>
+                          {formatDate(
+                            deposit.approvedAt
+                          )}
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                  </article>
+
+                )
+              )}
+
+            </div>
+
+          )}
+
+        </section>
+
+        {/* PAID WITHDRAWALS */}
+
+        <section className="admin-section">
+
+          <div className="admin-section-header">
+
+            <div>
+
+              <p className="dashboard-eyebrow">
+                PAID
+              </p>
+
+              <h2>
+                Paid withdrawals
+              </h2>
+
+            </div>
+
+          </div>
+
+          {paidWithdrawals.length === 0 ? (
+
+            <div className="admin-empty-card">
+
+              <strong>
+                No paid withdrawals
+              </strong>
+
+            </div>
+
+          ) : (
+
+            <div className="admin-deposit-list">
+
+              {paidWithdrawals.map(
+                (withdrawal) => (
+
+                  <article
+                    key={withdrawal.id}
+                    className="admin-deposit-card"
+                  >
+
+                    <div className="admin-deposit-header">
+
+                      <div>
+
+                        <span>
+                          User
+                        </span>
+
+                        <strong>
+                          {withdrawal.userFullName ||
+                            "Unknown user"}
+                        </strong>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Amount paid
+                        </span>
+
+                        <strong>
+                          {formatMoney(
+                            withdrawal.amount || 0
+                          )}
+                        </strong>
+
+                      </div>
+
+                    </div>
+
+                    <div className="admin-deposit-details">
+
+                      <div>
+
+                        <span>
+                          Bank
+                        </span>
+
+                        <p>
+                          {withdrawal.bankName ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Account number
+                        </span>
+
+                        <p>
+                          {withdrawal.accountNumber ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                         <div>
+
+                        <span>
+                          Account holder
+                        </span>
+
+                        <p>
+                          {withdrawal.accountHolderName ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Payment reference
+                        </span>
+
+                        <p>
+                          {withdrawal.paymentReference ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Paid
+                        </span>
+
+                        <p>
+                          {formatDate(
+                            withdrawal.paidAt
+                          )}
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                  </article>
+
+                )
+              )}
+
+            </div>
+
+          )}
+
+        </section>
+
+        {/* REJECTED WITHDRAWALS */}
+
+        <section className="admin-section">
+
+          <div className="admin-section-header">
+
+            <div>
+
+              <p className="dashboard-eyebrow">
+                REJECTED
+              </p>
+
+              <h2>
+                Rejected withdrawals
+              </h2>
+
+            </div>
+
+          </div>
+
+          {rejectedWithdrawals.length === 0 ? (
+
+            <div className="admin-empty-card">
+
+              <strong>
+                No rejected withdrawals
+              </strong>
+
+            </div>
+
+          ) : (
+
+            <div className="admin-deposit-list">
+
+              {rejectedWithdrawals.map(
+                (withdrawal) => (
+
+                  <article
+                    key={withdrawal.id}
+                    className="admin-deposit-card"
+                  >
+
+                    <div className="admin-deposit-header">
+
+                      <div>
+
+                        <span>
+                          User
+                        </span>
+
+                        <strong>
+                          {withdrawal.userFullName ||
+                            "Unknown user"}
+                        </strong>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Amount requested
+                        </span>
+
+                        <strong>
+                          {formatMoney(
+                            withdrawal.amount || 0
+                          )}
+                        </strong>
+
+                      </div>
+
+                    </div>
+
+                    <div className="admin-deposit-details">
+
+                      <div>
+
+                        <span>
+                          Bank
+                        </span>
+
+                        <p>
+                          {withdrawal.bankName ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Account number
+                        </span>
+
+                        <p>
+                          {withdrawal.accountNumber ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Account holder
+                        </span>
+
+                        <p>
+                          {withdrawal.accountHolderName ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Reference
+                        </span>
+
+                        <p>
+                          {withdrawal.reference ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Rejection reason
+                        </span>
+
+                        <p>
+                          {withdrawal.rejectionReason ||
+                            "No reason provided"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Reviewed
+                        </span>
+
+                        <p>
+                          {formatDate(
+                            withdrawal.reviewedAt
+                          )}
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                  </article>
 
                 )
               )}
@@ -1030,38 +2111,93 @@ export default function Admin() {
 
           ) : (
 
-            <div className="admin-history-list">
+            <div className="admin-deposit-list">
 
               {rejectedDeposits.map(
                 (deposit) => (
 
-                  <div
+                  <article
                     key={deposit.id}
-                    className="admin-history-item"
+                    className="admin-deposit-card"
                   >
 
-                    <div>
+                    <div className="admin-deposit-header">
 
-                      <strong>
-                        {deposit.senderName ||
-                          "Unknown sender"}
-                      </strong>
+                      <div>
 
-                      <span>
-                        {formatDate(
-                          deposit.createdAt
-                        )}
-                      </span>
+                        <span>
+                          Sender name
+                        </span>
+
+                        <strong>
+                          {deposit.senderName ||
+                            "Not provided"}
+                        </strong>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Amount
+                        </span>
+
+                        <strong>
+                          {formatMoney(
+                            deposit.amount || 0
+                          )}
+                        </strong>
+
+                      </div>
 
                     </div>
 
-                    <strong>
-                      {formatMoney(
-                        deposit.amount || 0
-                      )}
-                    </strong>
+                    <div className="admin-deposit-details">
 
-                  </div>
+                      <div>
+
+                        <span>
+                          User ID
+                        </span>
+
+                        <p>
+                          {deposit.userId ||
+                            "—"}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Rejected
+                        </span>
+
+                        <p>
+                          {formatDate(
+                            deposit.rejectedAt
+                          )}
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <span>
+                          Status
+                        </span>
+
+                        <p>
+                          <strong>
+                            Rejected
+                          </strong>
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                  </article>
 
                 )
               )}
@@ -1072,17 +2208,18 @@ export default function Admin() {
 
         </section>
 
-        {/* FOOTER */}
+        {/* ADMIN FOOTER */}
 
-        <footer className="dashboard-footer">
+        <footer className="admin-footer">
 
-          <strong>
-            XS Company Limited
-          </strong>
+          <p>
+            XS Company Limited — Administration
+          </p>
 
-          <span>
-            Administrator panel
-          </span>
+          <p>
+            Deposit and withdrawal requests are
+            reviewed manually.
+          </p>
 
         </footer>
 
@@ -1090,5 +2227,4 @@ export default function Admin() {
 
     </main>
   );
-}
-          
+  }
