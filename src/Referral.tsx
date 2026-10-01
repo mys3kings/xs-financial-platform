@@ -13,6 +13,9 @@ import {
 
 import { auth, db } from "./firebase";
 
+const REFERRAL_COMMISSION = 50;
+const MINIMUM_QUALIFYING_DEPOSIT = 500;
+
 type UserProfile = {
   fullName?: string;
   phone?: string;
@@ -24,6 +27,8 @@ type UserProfile = {
   referredByCode?: string;
 
   qualifiedReferrals?: number;
+  referralEarnings?: number;
+  totalReferralEarnings?: number;
 };
 
 type ReferralRecord = {
@@ -42,6 +47,8 @@ type ReferralRecord = {
   qualifiedAt?: any;
 
   commissionAmount?: number;
+  commissionPaid?: boolean;
+  commissionPaidAt?: any;
 };
 
 function generateReferralCode() {
@@ -116,6 +123,27 @@ function getStatusLabel(status?: string) {
   }
 }
 
+function getCommissionAmount(
+  referral: ReferralRecord
+) {
+  if (referral.status !== "QUALIFIED") {
+    return 0;
+  }
+
+  const amount = Number(
+    referral.commissionAmount
+  );
+
+  if (
+    Number.isFinite(amount) &&
+    amount > 0
+  ) {
+    return amount;
+  }
+
+  return REFERRAL_COMMISSION;
+}
+
 export default function Referral() {
   const [profile, setProfile] =
     useState<UserProfile | null>(null);
@@ -125,10 +153,12 @@ export default function Referral() {
   >([]);
 
   const [loading, setLoading] = useState(true);
+
   const [generatingCode, setGeneratingCode] =
     useState(false);
 
   const [error, setError] = useState("");
+
   const [copied, setCopied] = useState("");
 
   useEffect(() => {
@@ -146,17 +176,14 @@ export default function Referral() {
           setLoading(true);
           setError("");
 
-          /*
-           * Read this user's profile directly using
-           * their Firebase Auth UID.
-           */
           const userRef = doc(
             db,
             "users",
             user.uid
           );
 
-          const userSnapshot = await getDoc(userRef);
+          const userSnapshot =
+            await getDoc(userRef);
 
           let currentProfile: UserProfile;
 
@@ -166,16 +193,15 @@ export default function Referral() {
           } else {
             currentProfile = {
               fullName:
-                user.displayName || "XS User",
+                user.displayName ||
+                "XS User",
               email: user.email || "",
             };
           }
 
           /*
-           * Existing accounts created before the referral
-           * system may not have their own referral code.
-           *
-           * Generate one automatically.
+           * Older accounts may not have a referral
+           * code. Create one automatically.
            */
           if (!currentProfile.referralCode) {
             setGeneratingCode(true);
@@ -185,12 +211,14 @@ export default function Referral() {
                 await generateUniqueReferralCode();
 
               await updateDoc(userRef, {
-                referralCode: newReferralCode,
+                referralCode:
+                  newReferralCode,
               });
 
               currentProfile = {
                 ...currentProfile,
-                referralCode: newReferralCode,
+                referralCode:
+                  newReferralCode,
               };
             } finally {
               setGeneratingCode(false);
@@ -200,10 +228,8 @@ export default function Referral() {
           setProfile(currentProfile);
 
           /*
-           * Load referrals belonging to the current user.
-           *
-           * We deliberately don't use orderBy here so this
-           * page doesn't require a composite Firestore index.
+           * Get every referral belonging to
+           * the currently logged-in user.
            */
           const referralsQuery = query(
             collection(db, "referrals"),
@@ -218,16 +244,18 @@ export default function Referral() {
             await getDocs(referralsQuery);
 
           const referralData: ReferralRecord[] =
-            referralsSnapshot.docs.map((item) => ({
-              id: item.id,
-              ...(item.data() as Omit<
-                ReferralRecord,
-                "id"
-              >),
-            }));
+            referralsSnapshot.docs.map(
+              (item) => ({
+                id: item.id,
+                ...(item.data() as Omit<
+                  ReferralRecord,
+                  "id"
+                >),
+              })
+            );
 
           /*
-           * Sort newest registrations first on the client.
+           * Newest referrals first.
            */
           referralData.sort((a, b) => {
             const aTime =
@@ -290,29 +318,30 @@ export default function Referral() {
     referrals.filter(
       (referral) =>
         referral.status === "REGISTERED" ||
-        referral.status === "DEPOSIT_PENDING"
+        referral.status ===
+          "DEPOSIT_PENDING"
+    ).length;
+
+  const rejectedReferrals =
+    referrals.filter(
+      (referral) =>
+        referral.status === "REJECTED"
     ).length;
 
   /*
-   * This is only a display calculation for now.
+   * Display-only calculation.
    *
-   * The actual ₦50 commission will later be created
-   * by the trusted deposit-approval process.
+   * Referral.tsx NEVER creates or pays commissions.
+   * The trusted/admin deposit approval process is
+   * responsible for qualifying the referral.
    */
   const referralEarnings =
-    referrals
-      .filter(
-        (referral) =>
-          referral.status === "QUALIFIED"
-      )
-      .reduce(
-        (total, referral) =>
-          total +
-          Number(
-            referral.commissionAmount || 50
-          ),
-        0
-      );
+    referrals.reduce(
+      (total, referral) =>
+        total +
+        getCommissionAmount(referral),
+      0
+    );
 
   async function copyText(
     text: string,
@@ -368,8 +397,9 @@ export default function Referral() {
       );
     } catch (err) {
       /*
-       * The user may cancel the native share dialog.
-       * We don't need to display an error for that.
+       * Closing/cancelling the native share
+       * window is not an error that needs
+       * to be shown to the user.
        */
       console.log(
         "Share cancelled or unavailable.",
@@ -488,7 +518,8 @@ export default function Referral() {
             </strong>
 
             <p>
-              ₦50 per qualified referral
+              ₦{REFERRAL_COMMISSION} per
+              qualified referral
             </p>
           </div>
 
@@ -647,14 +678,15 @@ export default function Referral() {
 
             <div>
               <h3>
-                Earn ₦50 per qualified referral
+                Earn ₦
+                {REFERRAL_COMMISSION} per
+                qualified referral
               </h3>
 
               <p>
                 A person first needs to
-                register through your referral
-                link or code. The referral is
-                then registered in the system.
+                register through your
+                referral link or code.
               </p>
 
               <p
@@ -663,10 +695,26 @@ export default function Referral() {
                 }}
               >
                 After the referred user makes
-                a deposit of at least ₦500 and
-                the XS administrator approves
-                that deposit, the referral
-                becomes qualified.
+                a qualifying deposit of at
+                least ₦
+                {MINIMUM_QUALIFYING_DEPOSIT.toLocaleString(
+                  "en-NG"
+                )}{" "}
+                and the XS administrator
+                approves that deposit, the
+                referral becomes qualified.
+              </p>
+
+              <p
+                style={{
+                  marginTop: "8px",
+                }}
+              >
+                The referral commission is
+                handled separately from this
+                page so refreshing or opening
+                this page cannot create a
+                duplicate commission.
               </p>
             </div>
           </div>
@@ -717,40 +765,47 @@ export default function Referral() {
           ) : (
             <div className="account-info-card">
               {referrals.map(
-                (referral) => (
-                  <div
-                    className="account-info-row"
-                    key={referral.id}
-                  >
-                    <div>
-                      <span>
-                        {referral.referredName ||
-                          "Referred user"}
-                      </span>
+                (referral) => {
+                  const commission =
+                    getCommissionAmount(
+                      referral
+                    );
 
-                      <strong>
-                        {getStatusLabel(
-                          referral.status
-                        )}
-                      </strong>
+                  return (
+                    <div
+                      className="account-info-row"
+                      key={referral.id}
+                    >
+                      <div>
+                        <span>
+                          {referral.referredName ||
+                            "Referred user"}
+                        </span>
+
+                        <strong>
+                          {getStatusLabel(
+                            referral.status
+                          )}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          {formatDate(
+                            referral.registeredAt
+                          )}
+                        </span>
+
+                        <strong>
+                          ₦
+                          {commission.toLocaleString(
+                            "en-NG"
+                          )}
+                        </strong>
+                      </div>
                     </div>
-
-                    <div>
-                      <span>
-                        {formatDate(
-                          referral.registeredAt
-                        )}
-                      </span>
-
-                      <strong>
-                        {referral.status ===
-                        "QUALIFIED"
-                          ? "₦50"
-                          : "₦0"}
-                      </strong>
-                    </div>
-                  </div>
-                )
+                  );
+                }
               )}
             </div>
           )}
@@ -802,6 +857,16 @@ export default function Referral() {
 
             <div className="account-info-row">
               <span>
+                Rejected referrals
+              </span>
+
+              <strong>
+                {rejectedReferrals}
+              </strong>
+            </div>
+
+            <div className="account-info-row">
+              <span>
                 Referral earnings
               </span>
 
@@ -828,4 +893,4 @@ export default function Referral() {
       </div>
     </main>
   );
-  }
+}
