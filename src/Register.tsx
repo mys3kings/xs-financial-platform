@@ -56,7 +56,6 @@ export default function Register() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [debugStep, setDebugStep] = useState("");
 
   const allConsentsAccepted = Object.values(consents).every(Boolean);
 
@@ -79,9 +78,7 @@ export default function Register() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     setError("");
-    setDebugStep("");
 
     if (!allConsentsAccepted) {
       setError(
@@ -118,77 +115,148 @@ export default function Register() {
     try {
       setLoading(true);
 
-      // STEP 1: Firebase Authentication
-      setDebugStep("STEP 1: Creating Firebase Authentication account...");
+      console.log("XS REGISTER: Starting registration...");
 
-      const user = await registerUser(
-        form.email.trim(),
-        form.password,
-        form.fullName.trim()
-      );
+      // =====================================================
+      // STEP 1 — FIREBASE AUTHENTICATION
+      // =====================================================
 
-      setDebugStep(
-        `STEP 1 SUCCESS: Authentication account created. UID: ${user.uid}`
-      );
+      let user;
 
-      // STEP 2: Firestore user profile
-      setDebugStep("STEP 2: Creating Firestore user profile...");
+      try {
+        user = await registerUser(
+          form.email.trim(),
+          form.password,
+          form.fullName.trim()
+        );
 
-      await createUserProfile({
-        userId: user.uid,
-        fullName: form.fullName.trim(),
-        phone: form.phone.trim(),
-        email: form.email.trim(),
-        referralCode: form.referralCode.trim(),
-      });
+        console.log(
+          "XS REGISTER: Authentication successful.",
+          user.uid
+        );
+      } catch (authError: unknown) {
+        const authErr = authError as {
+          code?: string;
+          message?: string;
+        };
 
-      setDebugStep(
-        "STEP 2 SUCCESS: Firestore user profile created successfully."
-      );
+        console.error("XS REGISTER: AUTHENTICATION FAILED", authErr);
 
-      // STEP 3: Firestore consent record
-      setDebugStep("STEP 3: Saving consent information...");
+        throw new Error(
+          `AUTH ERROR: ${authErr.code || "unknown"} — ${
+            authErr.message || "Unknown authentication error"
+          }`
+        );
+      }
 
-      await saveUserConsents(user.uid);
+      // =====================================================
+      // STEP 2 — CREATE USER PROFILE
+      // =====================================================
 
-      setDebugStep(
-        "STEP 3 SUCCESS: Consent information saved successfully."
-      );
+      try {
+        console.log("XS REGISTER: Creating user profile...");
 
-      // STEP 4: Dashboard
-      setDebugStep("STEP 4 SUCCESS: Registration completed. Redirecting...");
+        await createUserProfile({
+          userId: user.uid,
+          fullName: form.fullName.trim(),
+          phone: form.phone.trim(),
+          email: form.email.trim(),
+          referralCode: form.referralCode.trim(),
+        });
+
+        console.log(
+          "XS REGISTER: User profile created successfully."
+        );
+      } catch (profileError: unknown) {
+        const profileErr = profileError as {
+          code?: string;
+          message?: string;
+        };
+
+        console.error(
+          "XS REGISTER: USER PROFILE FAILED",
+          profileErr
+        );
+
+        throw new Error(
+          `PROFILE ERROR: ${profileErr.code || "unknown"} — ${
+            profileErr.message || "Unknown Firestore profile error"
+          }`
+        );
+      }
+
+      // =====================================================
+      // STEP 3 — SAVE CONSENTS
+      // =====================================================
+
+      try {
+        console.log("XS REGISTER: Saving consents...");
+
+        await saveUserConsents(user.uid);
+
+        console.log(
+          "XS REGISTER: Consents saved successfully."
+        );
+      } catch (consentError: unknown) {
+        const consentErr = consentError as {
+          code?: string;
+          message?: string;
+        };
+
+        console.error(
+          "XS REGISTER: CONSENT SAVE FAILED",
+          consentErr
+        );
+
+        throw new Error(
+          `CONSENT ERROR: ${consentErr.code || "unknown"} — ${
+            consentErr.message || "Unknown Firestore consent error"
+          }`
+        );
+      }
+
+      // =====================================================
+      // STEP 4 — SUCCESS
+      // =====================================================
+
+      console.log("XS REGISTER: REGISTRATION COMPLETED.");
 
       navigate("/dashboard");
     } catch (err: unknown) {
-      console.error("REGISTRATION DEBUG ERROR:", err);
-
-      const firebaseError = err as {
-        code?: string;
-        message?: string;
-        name?: string;
-      };
-
-      const errorCode = firebaseError.code ?? "NO_ERROR_CODE";
-      const errorMessage =
-        firebaseError.message ?? "No error message was provided.";
-
-      setError(
-        `REGISTRATION FAILED
-
-Step reached:
-${debugStep}
-
-Error code:
-${errorCode}
-
-Error message:
-${errorMessage}
-
-Error name:
-${firebaseError.name ?? "Unknown"}`
+      console.error(
+        "XS REGISTER: COMPLETE REGISTRATION ERROR",
+        err
       );
 
-      setDebugStep(`FAILED: ${debugStep}`);
+      const errorObject = err as {
+        code?: string;
+        message?: string;
+      };
+
+      let message =
+        errorObject.message ||
+        "An unknown error occurred during registration.";
+
+      // Firebase Authentication errors
+      if (errorObject.code === "auth/email-already-in-use") {
+        message = "An account with this email already exists.";
+      } else if (errorObject.code === "auth/invalid-email") {
+        message = "Please enter a valid email address.";
+      } else if (errorObject.code === "auth/weak-password") {
+        message = "Please choose a stronger password.";
+      } else if (
+        errorObject.code === "auth/network-request-failed"
+      ) {
+        message =
+          "Network error. Please check your internet connection and try again.";
+      } else if (
+        errorObject.code === "permission-denied"
+      ) {
+        message =
+          "Firestore permission denied. Please check the Firestore Rules.";
+      }
+
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -212,8 +280,8 @@ ${firebaseError.name ?? "Unknown"}`
           <h1>Create your account</h1>
 
           <p>
-            Enter your details below to create an XS account. Please read the
-            information provided before continuing.
+            Enter your details below to create an XS account. Please
+            read the information provided before continuing.
           </p>
         </div>
 
@@ -283,7 +351,10 @@ ${firebaseError.name ?? "Unknown"}`
                 type="password"
                 value={form.confirmPassword}
                 onChange={(event) =>
-                  updateField("confirmPassword", event.target.value)
+                  updateField(
+                    "confirmPassword",
+                    event.target.value
+                  )
                 }
                 placeholder="Confirm your password"
                 autoComplete="new-password"
@@ -309,8 +380,8 @@ ${firebaseError.name ?? "Unknown"}`
               <h2>Before you continue</h2>
 
               <p>
-                Please read each document and confirm that you understand the
-                information provided.
+                Please read each document and confirm that you
+                understand the information provided.
               </p>
             </div>
 
@@ -323,7 +394,9 @@ ${firebaseError.name ?? "Unknown"}`
                   <input
                     type="checkbox"
                     checked={consents[item.key]}
-                    onChange={() => toggleConsent(item.key)}
+                    onChange={() =>
+                      toggleConsent(item.key)
+                    }
                   />
 
                   <span className="consent-copy">
@@ -335,33 +408,8 @@ ${firebaseError.name ?? "Unknown"}`
             </div>
           </section>
 
-          {debugStep && (
-            <div
-              className="form-debug"
-              style={{
-                whiteSpace: "pre-line",
-                padding: "12px",
-                marginTop: "12px",
-                border: "1px solid #ccc",
-                borderRadius: "8px",
-                fontSize: "13px",
-                lineHeight: "1.5",
-              }}
-            >
-              {debugStep}
-            </div>
-          )}
-
           {error && (
-            <div
-              className="form-error"
-              role="alert"
-              style={{
-                whiteSpace: "pre-line",
-                padding: "14px",
-                marginTop: "12px",
-              }}
-            >
+            <div className="form-error" role="alert">
               {error}
             </div>
           )}
@@ -384,4 +432,4 @@ ${firebaseError.name ?? "Unknown"}`
       </div>
     </main>
   );
-  }
+      }
