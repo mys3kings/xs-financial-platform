@@ -1,8 +1,11 @@
-import { FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { FormEvent, useEffect, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { doc, getDoc, addDoc, collection, serverTimestamp, query, where, getDocs } from "firebase/firestore";
+
 import { registerUser } from "./auth";
 import { saveUserConsents } from "./consents";
 import { createUserProfile } from "./users";
+import { db } from "./firebase";
 
 const consentItems = [
   {
@@ -13,40 +16,83 @@ const consentItems = [
   {
     key: "privacy",
     title: "Privacy Policy & Data Usage",
-    text: "I understand how XS collects and uses my information.",
+    text: "I have read and agree to the Privacy Policy & Data Usage.",
   },
   {
     key: "investment",
-    title: "Investment Terms & Risk Disclosure",
-    text: "I have read the investment terms and understand that investment activities involve risk.",
+    title: "Investment Terms / Risk Disclosure",
+    text: "I have read and understand the Investment Terms and Risk Disclosure.",
   },
   {
     key: "referral",
     title: "Referral Program Terms",
-    text: "I understand the requirements and conditions of the XS referral programme.",
+    text: "I have read and agree to the Referral Program Terms.",
   },
   {
     key: "platform",
     title: "Platform Structure & How XS Works",
-    text: "I have read and understand how the XS platform operates.",
+    text: "I have read and understand how the XS platform works.",
   },
-] as const;
+];
 
-type ConsentKey = (typeof consentItems)[number]["key"];
+type ConsentState = {
+  terms: boolean;
+  privacy: boolean;
+  investment: boolean;
+  referral: boolean;
+  platform: boolean;
+};
+
+type ReferrerInfo = {
+  userId: string;
+  referralCode: string;
+  fullName?: string;
+};
+
+function generateReferralCode() {
+  const randomNumber = Math.floor(100000 + Math.random() * 900000);
+  return `XS${randomNumber}`;
+}
+
+function getRegisterErrorMessage(code: string) {
+  switch (code) {
+    case "auth/email-already-in-use":
+      return "An account with this email already exists. Please login instead.";
+
+    case "auth/invalid-email":
+      return "Please enter a valid email address.";
+
+    case "auth/weak-password":
+      return "Your password is too weak. Please use a stronger password.";
+
+    case "auth/network-request-failed":
+      return "Network error. Please check your internet connection and try again.";
+
+    case "auth/operation-not-allowed":
+      return "Email and password registration is currently unavailable.";
+
+    default:
+      return "Unable to create your account right now. Please try again.";
+  }
+}
 
 export default function Register() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [form, setForm] = useState({
-    fullName: "",
-    phone: "",
-    email: "",
-    password: "",
-    confirmPassword: "",
-    referralCode: "",
-  });
+  const referralFromUrl =
+    searchParams.get("ref")?.trim().toUpperCase() || "";
 
-  const [consents, setConsents] = useState<Record<ConsentKey, boolean>>({
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  const [referralCode, setReferralCode] =
+    useState(referralFromUrl);
+
+  const [consents, setConsents] = useState<ConsentState>({
     terms: false,
     privacy: false,
     investment: false,
@@ -55,208 +101,283 @@ export default function Register() {
   });
 
   const [loading, setLoading] = useState(false);
+  const [validatingReferral, setValidatingReferral] =
+    useState(false);
+  const [referrerInfo, setReferrerInfo] =
+    useState<ReferrerInfo | null>(null);
+
   const [error, setError] = useState("");
+  const [referralError, setReferralError] = useState("");
 
-  const allConsentsAccepted = Object.values(consents).every(Boolean);
+  useEffect(() => {
+    if (referralFromUrl) {
+      setReferralCode(referralFromUrl);
+    }
+  }, [referralFromUrl]);
 
-  function updateField(
-    field: keyof typeof form,
-    value: string
+  const allConsentsAccepted =
+    consents.terms &&
+    consents.privacy &&
+    consents.investment &&
+    consents.referral &&
+    consents.platform;
+
+  function handleConsentChange(
+    key: keyof ConsentState
   ) {
-    setForm((current) => ({
-      ...current,
-      [field]: value,
+    setConsents((previous) => ({
+      ...previous,
+      [key]: !previous[key],
     }));
   }
 
-  function toggleConsent(key: ConsentKey) {
-    setConsents((current) => ({
-      ...current,
-      [key]: !current[key],
-    }));
+  async function findReferrer(
+    code: string
+  ): Promise<ReferrerInfo | null> {
+    const cleanCode = code.trim().toUpperCase();
+
+    if (!cleanCode) {
+      return null;
+    }
+
+    const usersQuery = query(
+      collection(db, "users"),
+      where("referralCode", "==", cleanCode)
+    );
+
+    const snapshot = await getDocs(usersQuery);
+
+    if (snapshot.empty) {
+      return null;
+    }
+
+    const referrerDocument = snapshot.docs[0];
+
+    const data = referrerDocument.data();
+
+    return {
+      userId: referrerDocument.id,
+      referralCode: cleanCode,
+      fullName: data.fullName || "",
+    };
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function validateReferralCode() {
+    const cleanCode = referralCode.trim().toUpperCase();
+
+    setReferralError("");
+    setReferrerInfo(null);
+
+    if (!cleanCode) {
+      return true;
+    }
+
+    try {
+      setValidatingReferral(true);
+
+      const referrer = await findReferrer(cleanCode);
+
+      if (!referrer) {
+        setReferralError(
+          "That referral code could not be found. Please check the code and try again."
+        );
+
+        return false;
+      }
+
+      setReferrerInfo(referrer);
+
+      return true;
+    } catch (err) {
+      console.error("REFERRAL VALIDATION ERROR:", err);
+
+      setReferralError(
+        "We could not verify the referral code right now. Please try again."
+      );
+
+      return false;
+    } finally {
+      setValidatingReferral(false);
+    }
+  }
+
+  async function generateUniqueReferralCode() {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const newCode = generateReferralCode();
+
+      const codeQuery = query(
+        collection(db, "users"),
+        where("referralCode", "==", newCode)
+      );
+
+      const snapshot = await getDocs(codeQuery);
+
+      if (snapshot.empty) {
+        return newCode;
+      }
+    }
+
+    throw new Error(
+      "Unable to generate a unique referral code."
+    );
+  }
+
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
+
     setError("");
+    setReferralError("");
+
+    const cleanFullName = fullName.trim();
+    const cleanPhone = phone.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanReferralCode =
+      referralCode.trim().toUpperCase();
 
     if (!allConsentsAccepted) {
       setError(
-        "Please read and accept all five documents before creating your account."
+        "Please review and accept all required documents before continuing."
       );
       return;
     }
 
-    if (!form.fullName.trim()) {
+    if (!cleanFullName) {
       setError("Please enter your full name.");
       return;
     }
 
-    if (!form.phone.trim()) {
+    if (!cleanPhone) {
       setError("Please enter your phone number.");
       return;
     }
 
-    if (!form.email.trim()) {
+    if (!cleanEmail) {
       setError("Please enter your email address.");
       return;
     }
 
-    if (form.password.length < 6) {
-      setError("Your password must contain at least 6 characters.");
+    if (password.length < 6) {
+      setError(
+        "Your password must contain at least 6 characters."
+      );
       return;
     }
 
-    if (form.password !== form.confirmPassword) {
-      setError("The passwords do not match.");
+    if (password !== confirmPassword) {
+      setError("Your passwords do not match.");
       return;
     }
 
     try {
       setLoading(true);
 
-      console.log("XS REGISTER: Starting registration...");
+      /*
+       * Validate the referral BEFORE creating the account.
+       * This prevents an invalid referral code from being
+       * attached to the new account.
+       */
+      let validatedReferrer: ReferrerInfo | null = null;
 
-      // =====================================================
-      // STEP 1 — FIREBASE AUTHENTICATION
-      // =====================================================
-
-      let user;
-
-      try {
-        user = await registerUser(
-          form.email.trim(),
-          form.password,
-          form.fullName.trim()
+      if (cleanReferralCode) {
+        validatedReferrer = await findReferrer(
+          cleanReferralCode
         );
 
-        console.log(
-          "XS REGISTER: Authentication successful.",
-          user.uid
-        );
-      } catch (authError: unknown) {
-        const authErr = authError as {
-          code?: string;
-          message?: string;
-        };
+        if (!validatedReferrer) {
+          setReferralError(
+            "That referral code could not be found. Please check the code and try again."
+          );
 
-        console.error("XS REGISTER: AUTHENTICATION FAILED", authErr);
-
-        throw new Error(
-          `AUTH ERROR: ${authErr.code || "unknown"} — ${
-            authErr.message || "Unknown authentication error"
-          }`
-        );
+          setLoading(false);
+          return;
+        }
       }
 
-      // =====================================================
-      // STEP 2 — CREATE USER PROFILE
-      // =====================================================
+      /*
+       * Generate the new user's own referral code.
+       */
+      const ownReferralCode =
+        await generateUniqueReferralCode();
 
-      try {
-        console.log("XS REGISTER: Creating user profile...");
-
-        await createUserProfile({
-          userId: user.uid,
-          fullName: form.fullName.trim(),
-          phone: form.phone.trim(),
-          email: form.email.trim(),
-          referralCode: form.referralCode.trim(),
-        });
-
-        console.log(
-          "XS REGISTER: User profile created successfully."
-        );
-      } catch (profileError: unknown) {
-        const profileErr = profileError as {
-          code?: string;
-          message?: string;
-        };
-
-        console.error(
-          "XS REGISTER: USER PROFILE FAILED",
-          profileErr
-        );
-
-        throw new Error(
-          `PROFILE ERROR: ${profileErr.code || "unknown"} — ${
-            profileErr.message || "Unknown Firestore profile error"
-          }`
-        );
-      }
-
-      // =====================================================
-      // STEP 3 — SAVE CONSENTS
-      // =====================================================
-
-      try {
-        console.log("XS REGISTER: Saving consents...");
-
-        await saveUserConsents(user.uid);
-
-        console.log(
-          "XS REGISTER: Consents saved successfully."
-        );
-      } catch (consentError: unknown) {
-        const consentErr = consentError as {
-          code?: string;
-          message?: string;
-        };
-
-        console.error(
-          "XS REGISTER: CONSENT SAVE FAILED",
-          consentErr
-        );
-
-        throw new Error(
-          `CONSENT ERROR: ${consentErr.code || "unknown"} — ${
-            consentErr.message || "Unknown Firestore consent error"
-          }`
-        );
-      }
-
-      // =====================================================
-      // STEP 4 — SUCCESS
-      // =====================================================
-
-      console.log("XS REGISTER: REGISTRATION COMPLETED.");
-
-      navigate("/dashboard");
-    } catch (err: unknown) {
-      console.error(
-        "XS REGISTER: COMPLETE REGISTRATION ERROR",
-        err
+      /*
+       * Create Firebase Authentication account.
+       */
+      const user = await registerUser(
+        cleanEmail,
+        password,
+        cleanFullName
       );
 
-      const errorObject = err as {
-        code?: string;
-        message?: string;
-      };
+      /*
+       * Create the user's Firestore profile.
+       *
+       * referralCode = THIS USER'S OWN referral code.
+       */
+      await createUserProfile({
+        userId: user.uid,
+        fullName: cleanFullName,
+        phone: cleanPhone,
+        email: cleanEmail,
+        referralCode: ownReferralCode,
+      });
 
-      let message =
-        errorObject.message ||
-        "An unknown error occurred during registration.";
+      /*
+       * If the user registered through another user's
+       * referral link, save the relationship.
+       */
+      if (validatedReferrer) {
+        const newReferralRef = await addDoc(
+          collection(db, "referrals"),
+          {
+            referrerUserId: validatedReferrer.userId,
+            referredUserId: user.uid,
 
-      // Firebase Authentication errors
-      if (errorObject.code === "auth/email-already-in-use") {
-        message = "An account with this email already exists.";
-      } else if (errorObject.code === "auth/invalid-email") {
-        message = "Please enter a valid email address.";
-      } else if (errorObject.code === "auth/weak-password") {
-        message = "Please choose a stronger password.";
-      } else if (
-        errorObject.code === "auth/network-request-failed"
-      ) {
-        message =
-          "Network error. Please check your internet connection and try again.";
-      } else if (
-        errorObject.code === "permission-denied"
-      ) {
-        message =
-          "Firestore permission denied. Please check the Firestore Rules.";
+            referralCode:
+              validatedReferrer.referralCode,
+
+            referredName: cleanFullName,
+
+            status: "REGISTERED",
+
+            registeredAt: serverTimestamp(),
+
+            depositApprovedAt: null,
+            qualifiedAt: null,
+
+            commissionAmount: 50,
+          }
+        );
+
+        console.log(
+          "Referral relationship created:",
+          newReferralRef.id
+        );
       }
 
-      setError(message);
+      /*
+       * Save the five required consent records.
+       */
+      await saveUserConsents(user.uid);
+
+      /*
+       * Registration completed.
+       */
+      navigate("/dashboard", {
+        replace: true,
+      });
+    } catch (err: any) {
+      console.error("REGISTRATION ERROR:", err);
+
+      /*
+       * If Firebase Auth has already created the account but
+       * another operation failed, don't expose internal
+       * Firebase errors to the user.
+       */
+      setError(
+        getRegisterErrorMessage(err?.code || "")
+      );
     } finally {
       setLoading(false);
     }
@@ -275,161 +396,299 @@ export default function Register() {
         </Link>
 
         <div className="auth-heading">
-          <p className="eyebrow">XS Company Limited</p>
+          <p className="eyebrow">
+            XS COMPANY LIMITED
+          </p>
 
           <h1>Create your account</h1>
 
           <p>
-            Enter your details below to create an XS account. Please
-            read the information provided before continuing.
+            Create an XS account to access your dashboard,
+            investment information and referral programme.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="register-form">
-          <div className="form-grid">
-            <label>
-              Full name
-              <input
-                type="text"
-                value={form.fullName}
-                onChange={(event) =>
-                  updateField("fullName", event.target.value)
-                }
-                placeholder="Enter your full name"
-                autoComplete="name"
-                required
-              />
+        {error && (
+          <div className="auth-error" role="alert">
+            {error}
+          </div>
+        )}
+
+        <form
+          onSubmit={handleSubmit}
+          className="auth-form"
+        >
+          <div className="form-group">
+            <label htmlFor="fullName">
+              Full Name
             </label>
 
-            <label>
-              Phone number
-              <input
-                type="tel"
-                value={form.phone}
-                onChange={(event) =>
-                  updateField("phone", event.target.value)
-                }
-                placeholder="Enter your phone number"
-                autoComplete="tel"
-                required
-              />
-            </label>
+            <input
+              id="fullName"
+              type="text"
+              value={fullName}
+              onChange={(event) =>
+                setFullName(event.target.value)
+              }
+              placeholder="Enter your full name"
+              autoComplete="name"
+              disabled={loading}
+            />
           </div>
 
-          <label>
-            Email address
+          <div className="form-group">
+            <label htmlFor="phone">
+              Phone Number
+            </label>
+
             <input
-              type="email"
-              value={form.email}
+              id="phone"
+              type="tel"
+              value={phone}
               onChange={(event) =>
-                updateField("email", event.target.value)
+                setPhone(event.target.value)
+              }
+              placeholder="Enter your phone number"
+              autoComplete="tel"
+              disabled={loading}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="email">
+              Email Address
+            </label>
+
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(event) =>
+                setEmail(event.target.value)
               }
               placeholder="Enter your email address"
               autoComplete="email"
-              required
+              disabled={loading}
             />
-          </label>
-
-          <div className="form-grid">
-            <label>
-              Password
-              <input
-                type="password"
-                value={form.password}
-                onChange={(event) =>
-                  updateField("password", event.target.value)
-                }
-                placeholder="Create a password"
-                autoComplete="new-password"
-                required
-              />
-            </label>
-
-            <label>
-              Confirm password
-              <input
-                type="password"
-                value={form.confirmPassword}
-                onChange={(event) =>
-                  updateField(
-                    "confirmPassword",
-                    event.target.value
-                  )
-                }
-                placeholder="Confirm your password"
-                autoComplete="new-password"
-                required
-              />
-            </label>
           </div>
 
-          <label>
-            Referral code
+          <div className="form-group">
+            <label htmlFor="password">
+              Password
+            </label>
+
             <input
-              type="text"
-              value={form.referralCode}
+              id="password"
+              type="password"
+              value={password}
               onChange={(event) =>
-                updateField("referralCode", event.target.value)
+                setPassword(event.target.value)
               }
-              placeholder="Enter referral code if you have one"
+              placeholder="Create a password"
+              autoComplete="new-password"
+              disabled={loading}
             />
-          </label>
+          </div>
 
-          <section className="consent-section">
-            <div className="consent-heading">
-              <h2>Before you continue</h2>
+          <div className="form-group">
+            <label htmlFor="confirmPassword">
+              Confirm Password
+            </label>
 
-              <p>
-                Please read each document and confirm that you
-                understand the information provided.
+            <input
+              id="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(event) =>
+                setConfirmPassword(event.target.value)
+              }
+              placeholder="Confirm your password"
+              autoComplete="new-password"
+              disabled={loading}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="referralCode">
+              Referral Code
+              <span
+                style={{
+                  fontWeight: 400,
+                  marginLeft: "6px",
+                  opacity: 0.7,
+                }}
+              >
+                (optional)
+              </span>
+            </label>
+
+            <input
+              id="referralCode"
+              type="text"
+              value={referralCode}
+              onChange={(event) => {
+                setReferralCode(
+                  event.target.value.toUpperCase()
+                );
+
+                setReferralError("");
+                setReferrerInfo(null);
+              }}
+              onBlur={() => {
+                if (referralCode.trim()) {
+                  validateReferralCode();
+                }
+              }}
+              placeholder="e.g. XS123456"
+              autoComplete="off"
+              disabled={loading}
+            />
+
+            {validatingReferral && (
+              <small>
+                Checking referral code...
+              </small>
+            )}
+
+            {referrerInfo && (
+              <small
+                style={{
+                  color: "#20A464",
+                  display: "block",
+                  marginTop: "6px",
+                }}
+              >
+                Referral code verified.
+                {referrerInfo.fullName
+                  ? ` Referred by ${referrerInfo.fullName}.`
+                  : ""}
+              </small>
+            )}
+
+            {referralError && (
+              <small
+                style={{
+                  color: "#D64545",
+                  display: "block",
+                  marginTop: "6px",
+                }}
+              >
+                {referralError}
+              </small>
+            )}
+          </div>
+
+          <div className="form-group">
+            <div
+              style={{
+                marginBottom: "10px",
+              }}
+            >
+              <strong>
+                Before You Join XS
+              </strong>
+
+              <p
+                style={{
+                  marginTop: "5px",
+                  fontSize: "0.9rem",
+                  opacity: 0.75,
+                }}
+              >
+                Please review and accept all five
+                required documents before creating your
+                account.
               </p>
             </div>
 
-            <div className="consent-list">
-              {consentItems.map((item) => (
-                <label
-                  className="consent-item"
-                  key={item.key}
-                >
-                  <input
-                    type="checkbox"
-                    checked={consents[item.key]}
-                    onChange={() =>
-                      toggleConsent(item.key)
-                    }
-                  />
+            {consentItems.map((item) => (
+              <label
+                key={item.key}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                  marginBottom: "12px",
+                  cursor: loading
+                    ? "not-allowed"
+                    : "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={
+                    consents[
+                      item.key as keyof ConsentState
+                    ]
+                  }
+                  onChange={() =>
+                    handleConsentChange(
+                      item.key as keyof ConsentState
+                    )
+                  }
+                  disabled={loading}
+                />
 
-                  <span className="consent-copy">
-                    <strong>{item.title}</strong>
-                    <span>{item.text}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </section>
+                <span>
+                  <strong>
+                    {item.title}
+                  </strong>
 
-          {error && (
-            <div className="form-error" role="alert">
-              {error}
-            </div>
-          )}
+                  <small
+                    style={{
+                      display: "block",
+                      marginTop: "3px",
+                      opacity: 0.75,
+                    }}
+                  >
+                    {item.text}
+                  </small>
+                </span>
+              </label>
+            ))}
+          </div>
 
           <button
             type="submit"
-            className="primary-button register-button"
-            disabled={!allConsentsAccepted || loading}
+            className="primary-button"
+            disabled={
+              loading ||
+              !allConsentsAccepted ||
+              validatingReferral
+            }
           >
             {loading
               ? "Creating account..."
-              : "Create account"}
+              : "Continue to Registration"}
           </button>
 
-          <p className="auth-footer">
-            Already have an account?{" "}
-            <Link to="/login">Sign in</Link>
-          </p>
+          {!allConsentsAccepted && (
+            <p
+              style={{
+                fontSize: "0.85rem",
+                textAlign: "center",
+                opacity: 0.7,
+              }}
+            >
+              Please review and accept all required
+              documents to continue.
+            </p>
+          )}
         </form>
+
+        <p className="auth-footer">
+          Already have an account?{" "}
+          <Link to="/login">
+            Login
+          </Link>
+        </p>
+
+        <p className="auth-footer">
+          <Link to="/">
+            Return to homepage
+          </Link>
+        </p>
       </div>
     </main>
   );
-      }
+    }
