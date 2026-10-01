@@ -3,34 +3,83 @@ import { Link } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   collection,
+  doc,
+  getDoc,
   getDocs,
-  orderBy,
   query,
+  updateDoc,
   where,
 } from "firebase/firestore";
+
 import { auth, db } from "./firebase";
+
+type UserProfile = {
+  fullName?: string;
+  phone?: string;
+  email?: string;
+
+  referralCode?: string;
+
+  referredBy?: string;
+  referredByCode?: string;
+
+  qualifiedReferrals?: number;
+};
 
 type ReferralRecord = {
   id: string;
+
+  referrerUserId?: string;
   referredUserId?: string;
+
+  referralCode?: string;
   referredName?: string;
+
   status?: string;
+
   registeredAt?: any;
   depositApprovedAt?: any;
   qualifiedAt?: any;
+
+  commissionAmount?: number;
 };
 
-type UserProfile = {
-  referralCode?: string;
-  fullName?: string;
-  email?: string;
-};
+function generateReferralCode() {
+  const randomNumber = Math.floor(
+    100000 + Math.random() * 900000
+  );
+
+  return `XS${randomNumber}`;
+}
+
+async function generateUniqueReferralCode() {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const newCode = generateReferralCode();
+
+    const existingCodeQuery = query(
+      collection(db, "users"),
+      where("referralCode", "==", newCode)
+    );
+
+    const snapshot = await getDocs(existingCodeQuery);
+
+    if (snapshot.empty) {
+      return newCode;
+    }
+  }
+
+  throw new Error(
+    "Unable to generate a unique referral code."
+  );
+}
 
 function formatDate(value: any) {
-  if (!value) return "—";
+  if (!value) {
+    return "—";
+  }
 
   try {
-    if (typeof value?.toDate === "function") {
+    if (typeof value.toDate === "function") {
       return value.toDate().toLocaleDateString("en-NG", {
         day: "2-digit",
         month: "short",
@@ -68,103 +117,215 @@ function getStatusLabel(status?: string) {
 }
 
 export default function Referral() {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [referrals, setReferrals] = useState<ReferralRecord[]>([]);
+  const [profile, setProfile] =
+    useState<UserProfile | null>(null);
+
+  const [referrals, setReferrals] = useState<
+    ReferralRecord[]
+  >([]);
+
   const [loading, setLoading] = useState(true);
+  const [generatingCode, setGeneratingCode] =
+    useState(false);
+
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
-  const [userId, setUserId] = useState("");
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        setProfile(null);
-        setReferrals([]);
-        setLoading(false);
-        return;
-      }
-
-      setUserId(user.uid);
-      setError("");
-
-      try {
-        const userRef = collection(db, "users");
-        const userQuery = query(
-          userRef,
-          where("__name__", "==", user.uid)
-        );
-
-        const userSnapshot = await getDocs(userQuery);
-
-        if (!userSnapshot.empty) {
-          setProfile(userSnapshot.docs[0].data() as UserProfile);
-        } else {
-          setProfile({
-            fullName: user.displayName || "XS User",
-            email: user.email || "",
-          });
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (user) => {
+        if (!user) {
+          setProfile(null);
+          setReferrals([]);
+          setLoading(false);
+          return;
         }
 
-        const referralsRef = collection(db, "referrals");
+        try {
+          setLoading(true);
+          setError("");
 
-        const referralsQuery = query(
-          referralsRef,
-          where("referrerUserId", "==", user.uid),
-          orderBy("registeredAt", "desc")
-        );
+          /*
+           * Read this user's profile directly using
+           * their Firebase Auth UID.
+           */
+          const userRef = doc(
+            db,
+            "users",
+            user.uid
+          );
 
-        const referralsSnapshot = await getDocs(referralsQuery);
+          const userSnapshot = await getDoc(userRef);
 
-        const referralData: ReferralRecord[] =
-          referralsSnapshot.docs.map((item) => ({
-            id: item.id,
-            ...(item.data() as Omit<ReferralRecord, "id">),
-          }));
+          let currentProfile: UserProfile;
 
-        setReferrals(referralData);
-      } catch (err) {
-        console.error("REFERRAL PAGE ERROR:", err);
+          if (userSnapshot.exists()) {
+            currentProfile =
+              userSnapshot.data() as UserProfile;
+          } else {
+            currentProfile = {
+              fullName:
+                user.displayName || "XS User",
+              email: user.email || "",
+            };
+          }
 
-        setError(
-          "We couldn't load your referral information right now."
-        );
-      } finally {
-        setLoading(false);
+          /*
+           * Existing accounts created before the referral
+           * system may not have their own referral code.
+           *
+           * Generate one automatically.
+           */
+          if (!currentProfile.referralCode) {
+            setGeneratingCode(true);
+
+            try {
+              const newReferralCode =
+                await generateUniqueReferralCode();
+
+              await updateDoc(userRef, {
+                referralCode: newReferralCode,
+              });
+
+              currentProfile = {
+                ...currentProfile,
+                referralCode: newReferralCode,
+              };
+            } finally {
+              setGeneratingCode(false);
+            }
+          }
+
+          setProfile(currentProfile);
+
+          /*
+           * Load referrals belonging to the current user.
+           *
+           * We deliberately don't use orderBy here so this
+           * page doesn't require a composite Firestore index.
+           */
+          const referralsQuery = query(
+            collection(db, "referrals"),
+            where(
+              "referrerUserId",
+              "==",
+              user.uid
+            )
+          );
+
+          const referralsSnapshot =
+            await getDocs(referralsQuery);
+
+          const referralData: ReferralRecord[] =
+            referralsSnapshot.docs.map((item) => ({
+              id: item.id,
+              ...(item.data() as Omit<
+                ReferralRecord,
+                "id"
+              >),
+            }));
+
+          /*
+           * Sort newest registrations first on the client.
+           */
+          referralData.sort((a, b) => {
+            const aTime =
+              typeof a.registeredAt?.toMillis ===
+              "function"
+                ? a.registeredAt.toMillis()
+                : 0;
+
+            const bTime =
+              typeof b.registeredAt?.toMillis ===
+              "function"
+                ? b.registeredAt.toMillis()
+                : 0;
+
+            return bTime - aTime;
+          });
+
+          setReferrals(referralData);
+        } catch (err) {
+          console.error(
+            "REFERRAL PAGE ERROR:",
+            err
+          );
+
+          setError(
+            "We couldn't load your referral information right now. Please try again."
+          );
+        } finally {
+          setLoading(false);
+        }
       }
-    });
+    );
 
     return () => unsubscribe();
   }, []);
 
-  const referralCode = profile?.referralCode || "";
+  const referralCode =
+    profile?.referralCode || "";
 
   const referralLink = useMemo(() => {
-    if (!referralCode) return "";
+    if (!referralCode) {
+      return "";
+    }
 
     return `${window.location.origin}/register?ref=${encodeURIComponent(
       referralCode
     )}`;
   }, [referralCode]);
 
-  const totalReferrals = referrals.length;
+  const totalReferrals =
+    referrals.length;
 
-  const qualifiedReferrals = referrals.filter(
-    (referral) => referral.status === "QUALIFIED"
-  ).length;
+  const qualifiedReferrals =
+    referrals.filter(
+      (referral) =>
+        referral.status === "QUALIFIED"
+    ).length;
 
-  const pendingReferrals = referrals.filter(
-    (referral) =>
-      referral.status === "REGISTERED" ||
-      referral.status === "DEPOSIT_PENDING"
-  ).length;
+  const pendingReferrals =
+    referrals.filter(
+      (referral) =>
+        referral.status === "REGISTERED" ||
+        referral.status === "DEPOSIT_PENDING"
+    ).length;
 
-  const referralEarnings = qualifiedReferrals * 50;
+  /*
+   * This is only a display calculation for now.
+   *
+   * The actual ₦50 commission will later be created
+   * by the trusted deposit-approval process.
+   */
+  const referralEarnings =
+    referrals
+      .filter(
+        (referral) =>
+          referral.status === "QUALIFIED"
+      )
+      .reduce(
+        (total, referral) =>
+          total +
+          Number(
+            referral.commissionAmount || 50
+          ),
+        0
+      );
 
-  async function copyText(text: string, type: string) {
-    if (!text) return;
+  async function copyText(
+    text: string,
+    type: string
+  ) {
+    if (!text) {
+      return;
+    }
 
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(
+        text
+      );
 
       setCopied(type);
 
@@ -172,30 +333,48 @@ export default function Referral() {
         setCopied("");
       }, 2000);
     } catch (err) {
-      console.error("Copy error:", err);
+      console.error(
+        "COPY ERROR:",
+        err
+      );
     }
   }
 
   async function shareReferralLink() {
-    if (!referralLink) return;
+    if (!referralLink) {
+      return;
+    }
 
     try {
       if (
         navigator.share &&
-        typeof navigator.share === "function"
+        typeof navigator.share ===
+          "function"
       ) {
         await navigator.share({
-          title: "Join XS Company Limited",
-          text: "Join XS Company Limited using my referral link.",
+          title:
+            "Join XS Company Limited",
+          text:
+            "Join XS Company Limited using my referral link.",
           url: referralLink,
         });
 
         return;
       }
 
-      await copyText(referralLink, "link");
+      await copyText(
+        referralLink,
+        "link"
+      );
     } catch (err) {
-      console.error("Share error:", err);
+      /*
+       * The user may cancel the native share dialog.
+       * We don't need to display an error for that.
+       */
+      console.log(
+        "Share cancelled or unavailable.",
+        err
+      );
     }
   }
 
@@ -204,7 +383,12 @@ export default function Referral() {
       <main className="dashboard-page">
         <div className="dashboard-loading">
           <div className="dashboard-loader"></div>
-          <p>Loading your referral programme...</p>
+
+          <p>
+            {generatingCode
+              ? "Creating your referral code..."
+              : "Loading your referral programme..."}
+          </p>
         </div>
       </main>
     );
@@ -213,13 +397,27 @@ export default function Referral() {
   return (
     <main className="dashboard-page">
       <header className="dashboard-navbar">
-        <Link to="/dashboard" className="dashboard-brand">
-          <span className="brand-x">X</span>
-          <span className="brand-s">S</span>
-          <span className="brand-name">Company Limited</span>
+        <Link
+          to="/dashboard"
+          className="dashboard-brand"
+        >
+          <span className="brand-x">
+            X
+          </span>
+
+          <span className="brand-s">
+            S
+          </span>
+
+          <span className="brand-name">
+            Company Limited
+          </span>
         </Link>
 
-        <Link to="/dashboard" className="dashboard-logout">
+        <Link
+          to="/dashboard"
+          className="dashboard-logout"
+        >
           Dashboard
         </Link>
       </header>
@@ -231,17 +429,23 @@ export default function Referral() {
               XS COMPANY LIMITED
             </p>
 
-            <h1>Referral programme</h1>
+            <h1>
+              Referral programme
+            </h1>
 
             <p>
-              Invite people to XS using your unique referral
-              link and track your referral progress.
+              Invite people to XS using your
+              unique referral link and track
+              your referral progress.
             </p>
           </div>
         </section>
 
         {error && (
-          <div className="auth-error" role="alert">
+          <div
+            className="auth-error"
+            role="alert"
+          >
             {error}
           </div>
         )}
@@ -249,54 +453,91 @@ export default function Referral() {
         <section className="dashboard-summary">
           <div className="dashboard-card">
             <div className="dashboard-card-top">
-              <span>Total referrals</span>
-              <span className="dashboard-card-icon">↗</span>
-            </div>
+              <span>
+                Total referrals
+              </span>
 
-            <strong>{totalReferrals}</strong>
-
-            <p>People registered through your referral</p>
-          </div>
-
-          <div className="dashboard-card">
-            <div className="dashboard-card-top">
-              <span>Qualified referrals</span>
-              <span className="dashboard-card-icon">✓</span>
-            </div>
-
-            <strong>{qualifiedReferrals}</strong>
-
-            <p>₦50 earned per qualified referral</p>
-          </div>
-
-          <div className="dashboard-card">
-            <div className="dashboard-card-top">
-              <span>Referral earnings</span>
-              <span className="dashboard-card-icon">₦</span>
+              <span className="dashboard-card-icon">
+                ↗
+              </span>
             </div>
 
             <strong>
-              ₦{referralEarnings.toLocaleString("en-NG")}
+              {totalReferrals}
             </strong>
 
-            <p>Based on qualified referrals</p>
+            <p>
+              People registered through
+              your referral
+            </p>
+          </div>
+
+          <div className="dashboard-card">
+            <div className="dashboard-card-top">
+              <span>
+                Qualified referrals
+              </span>
+
+              <span className="dashboard-card-icon">
+                ✓
+              </span>
+            </div>
+
+            <strong>
+              {qualifiedReferrals}
+            </strong>
+
+            <p>
+              ₦50 per qualified referral
+            </p>
+          </div>
+
+          <div className="dashboard-card">
+            <div className="dashboard-card-top">
+              <span>
+                Referral earnings
+              </span>
+
+              <span className="dashboard-card-icon">
+                ₦
+              </span>
+            </div>
+
+            <strong>
+              ₦
+              {referralEarnings.toLocaleString(
+                "en-NG"
+              )}
+            </strong>
+
+            <p>
+              Based on qualified referrals
+            </p>
           </div>
         </section>
 
         <section className="dashboard-section">
           <div className="dashboard-section-heading">
             <div>
-              <p className="dashboard-eyebrow">YOUR REFERRAL CODE</p>
-              <h2>Invite people to XS</h2>
+              <p className="dashboard-eyebrow">
+                YOUR REFERRAL CODE
+              </p>
+
+              <h2>
+                Invite people to XS
+              </h2>
             </div>
           </div>
 
           <div className="referral-dashboard-card">
             <div>
-              <span>Your referral code</span>
+              <span>
+                Your referral code
+              </span>
 
               <strong>
-                {referralCode || "Not assigned yet"}
+                {referralCode ||
+                  "Generating..."}
               </strong>
             </div>
 
@@ -304,11 +545,16 @@ export default function Referral() {
               type="button"
               className="dashboard-small-button"
               onClick={() =>
-                copyText(referralCode, "code")
+                copyText(
+                  referralCode,
+                  "code"
+                )
               }
               disabled={!referralCode}
             >
-              {copied === "code" ? "Copied!" : "Copy code"}
+              {copied === "code"
+                ? "Copied!"
+                : "Copy code"}
             </button>
           </div>
         </section>
@@ -316,17 +562,30 @@ export default function Referral() {
         <section className="dashboard-section">
           <div className="dashboard-section-heading">
             <div>
-              <p className="dashboard-eyebrow">REFERRAL LINK</p>
-              <h2>Share your link</h2>
+              <p className="dashboard-eyebrow">
+                REFERRAL LINK
+              </p>
+
+              <h2>
+                Share your link
+              </h2>
             </div>
           </div>
 
           <div className="account-info-card">
             <div className="account-info-row">
-              <span>Your referral link</span>
+              <span>
+                Your referral link
+              </span>
 
-              <strong>
-                {referralLink || "Your referral link will appear here."}
+              <strong
+                style={{
+                  wordBreak:
+                    "break-all",
+                }}
+              >
+                {referralLink ||
+                  "Generating your referral link..."}
               </strong>
             </div>
 
@@ -342,7 +601,10 @@ export default function Referral() {
                 type="button"
                 className="dashboard-small-button"
                 onClick={() =>
-                  copyText(referralLink, "link")
+                  copyText(
+                    referralLink,
+                    "link"
+                  )
                 }
                 disabled={!referralLink}
               >
@@ -354,7 +616,9 @@ export default function Referral() {
               <button
                 type="button"
                 className="dashboard-small-button"
-                onClick={shareReferralLink}
+                onClick={
+                  shareReferralLink
+                }
                 disabled={!referralLink}
               >
                 Share link
@@ -366,22 +630,43 @@ export default function Referral() {
         <section className="dashboard-section">
           <div className="dashboard-section-heading">
             <div>
-              <p className="dashboard-eyebrow">HOW IT WORKS</p>
-              <h2>How you qualify for ₦50</h2>
+              <p className="dashboard-eyebrow">
+                HOW IT WORKS
+              </p>
+
+              <h2>
+                How a referral qualifies
+              </h2>
             </div>
           </div>
 
           <div className="investment-empty-card">
-            <div className="investment-clock">₦</div>
+            <div className="investment-clock">
+              ₦
+            </div>
 
             <div>
-              <h3>Qualified referral</h3>
+              <h3>
+                Earn ₦50 per qualified referral
+              </h3>
 
               <p>
-                A referral becomes qualified when the person
-                registers through your referral code, deposits
-                at least ₦500, and the deposit is approved by
-                an XS administrator.
+                A person first needs to
+                register through your referral
+                link or code. The referral is
+                then registered in the system.
+              </p>
+
+              <p
+                style={{
+                  marginTop: "8px",
+                }}
+              >
+                After the referred user makes
+                a deposit of at least ₦500 and
+                the XS administrator approves
+                that deposit, the referral
+                becomes qualified.
               </p>
             </div>
           </div>
@@ -390,27 +675,39 @@ export default function Referral() {
         <section className="dashboard-section">
           <div className="dashboard-section-heading">
             <div>
-              <p className="dashboard-eyebrow">REFERRAL HISTORY</p>
-              <h2>Your referrals</h2>
+              <p className="dashboard-eyebrow">
+                REFERRAL HISTORY
+              </p>
+
+              <h2>
+                Your referrals
+              </h2>
             </div>
           </div>
 
           {referrals.length === 0 ? (
             <div className="investment-empty-card">
-              <div className="investment-clock">↗</div>
+              <div className="investment-clock">
+                ↗
+              </div>
 
               <div>
-                <h3>No referrals yet</h3>
+                <h3>
+                  No referrals yet
+                </h3>
 
                 <p>
-                  You haven't referred anyone yet. Share your
-                  referral link to get started.
+                  You haven't referred anyone
+                  yet. Share your referral link
+                  to get started.
                 </p>
 
                 <button
                   type="button"
                   className="dashboard-small-button"
-                  onClick={shareReferralLink}
+                  onClick={
+                    shareReferralLink
+                  }
                   disabled={!referralLink}
                 >
                   Share referral link
@@ -419,35 +716,42 @@ export default function Referral() {
             </div>
           ) : (
             <div className="account-info-card">
-              {referrals.map((referral) => (
-                <div
-                  className="account-info-row"
-                  key={referral.id}
-                >
-                  <div>
-                    <span>
-                      {referral.referredName ||
-                        "Referred user"}
-                    </span>
+              {referrals.map(
+                (referral) => (
+                  <div
+                    className="account-info-row"
+                    key={referral.id}
+                  >
+                    <div>
+                      <span>
+                        {referral.referredName ||
+                          "Referred user"}
+                      </span>
 
-                    <strong>
-                      {getStatusLabel(referral.status)}
-                    </strong>
+                      <strong>
+                        {getStatusLabel(
+                          referral.status
+                        )}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>
+                        {formatDate(
+                          referral.registeredAt
+                        )}
+                      </span>
+
+                      <strong>
+                        {referral.status ===
+                        "QUALIFIED"
+                          ? "₦50"
+                          : "₦0"}
+                      </strong>
+                    </div>
                   </div>
-
-                  <div>
-                    <span>
-                      {formatDate(referral.registeredAt)}
-                    </span>
-
-                    <strong>
-                      {referral.status === "QUALIFIED"
-                        ? "₦50"
-                        : "₦0"}
-                    </strong>
-                  </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
           )}
         </section>
@@ -459,43 +763,69 @@ export default function Referral() {
                 REFERRAL STATUS
               </p>
 
-              <h2>Your progress</h2>
+              <h2>
+                Your progress
+              </h2>
             </div>
           </div>
 
           <div className="account-info-card">
             <div className="account-info-row">
-              <span>Total referrals</span>
-              <strong>{totalReferrals}</strong>
-            </div>
+              <span>
+                Total referrals
+              </span>
 
-            <div className="account-info-row">
-              <span>Pending referrals</span>
-              <strong>{pendingReferrals}</strong>
-            </div>
-
-            <div className="account-info-row">
-              <span>Qualified referrals</span>
-              <strong>{qualifiedReferrals}</strong>
-            </div>
-
-            <div className="account-info-row">
-              <span>Referral earnings</span>
               <strong>
-                ₦{referralEarnings.toLocaleString("en-NG")}
+                {totalReferrals}
+              </strong>
+            </div>
+
+            <div className="account-info-row">
+              <span>
+                Pending referrals
+              </span>
+
+              <strong>
+                {pendingReferrals}
+              </strong>
+            </div>
+
+            <div className="account-info-row">
+              <span>
+                Qualified referrals
+              </span>
+
+              <strong>
+                {qualifiedReferrals}
+              </strong>
+            </div>
+
+            <div className="account-info-row">
+              <span>
+                Referral earnings
+              </span>
+
+              <strong>
+                ₦
+                {referralEarnings.toLocaleString(
+                  "en-NG"
+                )}
               </strong>
             </div>
           </div>
         </section>
 
         <footer className="dashboard-footer">
-          <strong>XS Company Limited</strong>
+          <strong>
+            XS Company Limited
+          </strong>
 
           <span>
-            © {new Date().getFullYear()} All rights reserved.
+            © {new Date().getFullYear()} All
+            rights reserved.
           </span>
         </footer>
       </div>
     </main>
   );
-    }
+  }
