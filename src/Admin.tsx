@@ -21,62 +21,6 @@ const DAILY_RETURN = 200;
 const CYCLE_DAYS = 3;
 const CYCLE_TOTAL_RETURN = DAILY_RETURN * CYCLE_DAYS;
 
-// --------------------------------------------------
-// GET CURRENT NIGERIAN TIME
-// --------------------------------------------------
-
-function getNigeriaNow(): Date {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Lagos",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date());
-
-  const values: Record<string, string> = {};
-
-  parts.forEach((part) => {
-    if (part.type !== "literal") {
-      values[part.type] = part.value;
-    }
-  });
-
-  return new Date(
-    Date.UTC(
-      Number(values.year),
-      Number(values.month) - 1,
-      Number(values.day),
-      Number(values.hour),
-      Number(values.minute),
-      Number(values.second)
-    )
-  );
-}
-
-// --------------------------------------------------
-// GET NEXT 12:00 AM NIGERIAN TIME
-// --------------------------------------------------
-
-function getNextNigeriaMidnight(): Date {
-  const nigeriaNow = getNigeriaNow();
-
-  nigeriaNow.setUTCDate(
-    nigeriaNow.getUTCDate() + 1
-  );
-
-  nigeriaNow.setUTCHours(0, 0, 0, 0);
-
-  return nigeriaNow;
-}
-
-// --------------------------------------------------
-// DEPOSIT TYPE
-// --------------------------------------------------
-
 type Deposit = {
   id: string;
   userId?: string;
@@ -89,10 +33,6 @@ type Deposit = {
   approvedAt?: any;
   rejectedAt?: any;
 };
-
-// --------------------------------------------------
-// WITHDRAWAL TYPE
-// --------------------------------------------------
 
 type Withdrawal = {
   id: string;
@@ -115,78 +55,245 @@ type Withdrawal = {
   rejectionReason?: string | null;
 };
 
-// --------------------------------------------------
-// ADMIN COMPONENT
-// --------------------------------------------------
+type UserRecord = {
+  id: string;
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  balance?: number;
+  availableBalance?: number;
+  referralEarnings?: number;
+  referredUsersCount?: number;
+  referralCount?: number;
+  referralCode?: string;
+  referredBy?: string;
+  createdAt?: any;
+  investmentStatus?: string;
+};
+
+type Investment = {
+  id: string;
+  userId?: string;
+  status?: string;
+  investmentAmount?: number;
+  principalAmount?: number;
+  dailyReturn?: number;
+  totalReturns?: number;
+  cycleDays?: number;
+  startedAt?: any;
+  nextReturnAt?: any;
+};
+
+function getNigeriaNow() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Lagos",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const values: Record<string, string> = {};
+
+  for (const part of parts) {
+    if (part.type !== "literal") {
+      values[part.type] = part.value;
+    }
+  }
+
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    hour: Number(values.hour),
+    minute: Number(values.minute),
+    second: Number(values.second),
+  };
+}
+
+function getNextNigeriaMidnight() {
+  const now = getNigeriaNow();
+
+  const nextDay = new Date(
+    Date.UTC(
+      now.year,
+      now.month - 1,
+      now.day + 1,
+      0,
+      0,
+      0
+    )
+  );
+
+  return nextDay;
+}
+
+function formatMoney(value: number | undefined) {
+  return new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    minimumFractionDigits: 2,
+  }).format(Number(value || 0));
+}
+
+function formatDate(value: any) {
+  if (!value) {
+    return "—";
+  }
+
+  try {
+    const date =
+      typeof value?.toDate === "function"
+        ? value.toDate()
+        : value instanceof Date
+        ? value
+        : new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return "—";
+    }
+
+    return new Intl.DateTimeFormat("en-NG", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "Africa/Lagos",
+    }).format(date);
+  } catch {
+    return "—";
+  }
+}
 
 export default function Admin() {
   const navigate = useNavigate();
 
-  const [authenticated, setAuthenticated] =
-    useState(false);
-
+  const [authenticated, setAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
 
-  const [passwordError, setPasswordError] =
-    useState("");
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [users, setUsers] = useState<UserRecord[]>([]);
+  const [investments, setInvestments] = useState<Investment[]>([]);
 
-  const [deposits, setDeposits] =
-    useState<Deposit[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [processingId, setProcessingId] = useState("");
 
-  const [withdrawals, setWithdrawals] =
-    useState<Withdrawal[]>([]);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
 
-  const [loading, setLoading] =
+  const [withdrawalPortalLocked, setWithdrawalPortalLocked] =
     useState(false);
 
-  const [processingId, setProcessingId] =
-    useState("");
+  const [withdrawalPortalLoading, setWithdrawalPortalLoading] =
+    useState(false);
 
-  const [message, setMessage] =
-    useState("");
+  const [selectedUser, setSelectedUser] =
+    useState<UserRecord | null>(null);
 
-  const [error, setError] =
-    useState("");
+  useEffect(() => {
+    const savedAuth = sessionStorage.getItem("xs_admin_authenticated");
 
-  // --------------------------------------------------
-  // WITHDRAWAL PORTAL LOCK STATE
-  // --------------------------------------------------
+    if (savedAuth === "true") {
+      setAuthenticated(true);
+    }
+  }, []);
 
-  const [
-    withdrawalPortalLocked,
-    setWithdrawalPortalLocked,
-  ] = useState(false);
-
-  const [
-    withdrawalPortalLoading,
-    setWithdrawalPortalLoading,
-  ] = useState(false);
-
-  // --------------------------------------------------
-  // ADMIN LOGIN
-  // --------------------------------------------------
-
-  function handleAdminLogin(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
-    event.preventDefault();
-
+  async function handleAdminLogin() {
     setPasswordError("");
 
-    if (password === ADMIN_PASSWORD) {
-      setAuthenticated(true);
-      setPassword("");
+    if (password !== ADMIN_PASSWORD) {
+      setPasswordError("Incorrect admin password.");
       return;
     }
 
-    setPasswordError(
-      "Incorrect admin password."
-    );
+    sessionStorage.setItem("xs_admin_authenticated", "true");
+    setAuthenticated(true);
+    setPassword("");
   }
 
-  // --------------------------------------------------
-  // LOAD DEPOSITS
-  // --------------------------------------------------
+  async function loadUsers() {
+    const usersSnapshot = await getDocs(
+      collection(db, "users")
+    );
+
+    const userList: UserRecord[] = [];
+
+    usersSnapshot.forEach((userDoc) => {
+      const data = userDoc.data();
+
+      userList.push({
+        id: userDoc.id,
+        fullName: data.fullName || "",
+        email: data.email || "",
+        phone: data.phone || "",
+        balance: Number(data.balance || 0),
+        availableBalance: Number(
+          data.availableBalance ?? data.balance ?? 0
+        ),
+        referralEarnings: Number(
+          data.referralEarnings || 0
+        ),
+        referredUsersCount: Number(
+          data.referredUsersCount ??
+            data.referralCount ??
+            0
+        ),
+        referralCount: Number(
+          data.referralCount ||
+            data.referredUsersCount ||
+            0
+        ),
+        referralCode: data.referralCode || "",
+        referredBy: data.referredBy || "",
+        createdAt: data.createdAt,
+        investmentStatus: data.investmentStatus || "",
+      });
+    });
+
+    setUsers(userList);
+  }
+
+  async function loadInvestments() {
+    const investmentsSnapshot = await getDocs(
+      collection(db, "investments")
+    );
+
+    const investmentList: Investment[] = [];
+
+    investmentsSnapshot.forEach((investmentDoc) => {
+      const data = investmentDoc.data();
+
+      investmentList.push({
+        id: investmentDoc.id,
+        userId: data.userId || investmentDoc.id,
+        status: data.status || "",
+        investmentAmount: Number(
+          data.investmentAmount || 0
+        ),
+        principalAmount: Number(
+          data.principalAmount ||
+            data.investmentAmount ||
+            0
+        ),
+        dailyReturn: Number(
+          data.dailyReturn || DAILY_RETURN
+        ),
+        totalReturns: Number(
+          data.totalReturns || CYCLE_TOTAL_RETURN
+        ),
+        cycleDays: Number(
+          data.cycleDays || CYCLE_DAYS
+        ),
+        startedAt: data.startedAt,
+        nextReturnAt: data.nextReturnAt,
+      });
+    });
+
+    setInvestments(investmentList);
+  }
 
   async function loadDeposits() {
     const depositsQuery = query(
@@ -194,24 +301,29 @@ export default function Admin() {
       orderBy("createdAt", "desc")
     );
 
-    const snapshot =
-      await getDocs(depositsQuery);
+    const snapshot = await getDocs(depositsQuery);
 
-    const depositList: Deposit[] =
-      snapshot.docs.map((depositDoc) => ({
+    const depositList: Deposit[] = [];
+
+    snapshot.forEach((depositDoc) => {
+      const data = depositDoc.data();
+
+      depositList.push({
         id: depositDoc.id,
-        ...(depositDoc.data() as Omit<
-          Deposit,
-          "id"
-        >),
-      }));
+        userId: data.userId,
+        senderName: data.senderName,
+        amount: Number(data.amount || 0),
+        currency: data.currency || "NGN",
+        status: data.status || "pending",
+        type: data.type || "investment",
+        createdAt: data.createdAt,
+        approvedAt: data.approvedAt,
+        rejectedAt: data.rejectedAt,
+      });
+    });
 
     setDeposits(depositList);
   }
-
-  // --------------------------------------------------
-  // LOAD WITHDRAWALS
-  // --------------------------------------------------
 
   async function loadWithdrawals() {
     const withdrawalsQuery = query(
@@ -219,82 +331,75 @@ export default function Admin() {
       orderBy("createdAt", "desc")
     );
 
-    const snapshot =
-      await getDocs(withdrawalsQuery);
+    const snapshot = await getDocs(withdrawalsQuery);
 
-    const withdrawalList: Withdrawal[] =
-      snapshot.docs.map((withdrawalDoc) => ({
+    const withdrawalList: Withdrawal[] = [];
+
+    snapshot.forEach((withdrawalDoc) => {
+      const data = withdrawalDoc.data();
+
+      withdrawalList.push({
         id: withdrawalDoc.id,
-        ...(withdrawalDoc.data() as Omit<
-          Withdrawal,
-          "id"
-        >),
-      }));
+        userId: data.userId,
+        userFullName: data.userFullName,
+        userEmail: data.userEmail,
+        amount: Number(data.amount || 0),
+        currency: data.currency || "NGN",
+        bankName: data.bankName,
+        accountNumber: data.accountNumber,
+        accountHolderName: data.accountHolderName,
+        reference: data.reference,
+        status: data.status || "PENDING",
+        createdAt: data.createdAt,
+        reviewedAt: data.reviewedAt,
+        reviewedBy: data.reviewedBy,
+        paidAt: data.paidAt,
+        paidBy: data.paidBy,
+        paymentReference: data.paymentReference,
+        rejectionReason: data.rejectionReason,
+      });
+    });
 
     setWithdrawals(withdrawalList);
   }
 
-  // --------------------------------------------------
-  // LOAD WITHDRAWAL PORTAL STATUS
-  // --------------------------------------------------
-
   async function loadWithdrawalPortalStatus() {
-    try {
-      const settingsRef = doc(
-        db,
-        "settings",
-        "withdrawalPortal"
+    const settingsRef = doc(
+      db,
+      "settings",
+      "withdrawalPortal"
+    );
+
+    const snapshot = await getDoc(settingsRef);
+
+    if (snapshot.exists()) {
+      const data = snapshot.data();
+
+      setWithdrawalPortalLocked(
+        data.locked === true
       );
-
-      const snapshot =
-        await getDoc(settingsRef);
-
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-
-        setWithdrawalPortalLocked(
-          data.locked === true
-        );
-      } else {
-        // If the setting doesn't exist yet,
-        // the withdrawal portal is open.
-        setWithdrawalPortalLocked(false);
-      }
-    } catch (err) {
-      console.error(
-        "Withdrawal portal status error:",
-        err
-      );
-
-      throw new Error(
-        "Unable to load withdrawal portal status."
-      );
+    } else {
+      setWithdrawalPortalLocked(false);
     }
   }
-
-  // --------------------------------------------------
-  // LOAD EVERYTHING
-  // --------------------------------------------------
 
   async function loadAdminData() {
     try {
       setLoading(true);
       setError("");
-      setMessage("");
 
       await Promise.all([
+        loadUsers(),
+        loadInvestments(),
         loadDeposits(),
         loadWithdrawals(),
         loadWithdrawalPortalStatus(),
       ]);
     } catch (err) {
-      console.error(
-        "Admin data loading error:",
-        err
-      );
+      console.error("Admin data loading error:", err);
 
       setError(
-        "Unable to load admin data. Check your Firestore permissions and configuration."
+        "Some admin data could not be loaded. Check your Firestore permissions."
       );
     } finally {
       setLoading(false);
@@ -302,18 +407,13 @@ export default function Admin() {
   }
 
   useEffect(() => {
-    if (!authenticated) return;
-
-    loadAdminData();
+    if (authenticated) {
+      loadAdminData();
+    }
   }, [authenticated]);
 
-  // --------------------------------------------------
-  // LOCK / UNLOCK WITHDRAWAL PORTAL
-  // --------------------------------------------------
-
   async function toggleWithdrawalPortal() {
-    const newLockedState =
-      !withdrawalPortalLocked;
+    const newLockedState = !withdrawalPortalLocked;
 
     const actionText = newLockedState
       ? "lock"
@@ -323,7 +423,9 @@ export default function Admin() {
       `Are you sure you want to ${actionText} the withdrawal portal?`
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     try {
       setWithdrawalPortalLoading(true);
@@ -343,9 +445,7 @@ export default function Admin() {
           updatedAt: serverTimestamp(),
           updatedBy: "admin",
         },
-        {
-          merge: true,
-        }
+        { merge: true }
       );
 
       setWithdrawalPortalLocked(
@@ -375,13 +475,7 @@ export default function Admin() {
     }
   }
 
-  // --------------------------------------------------
-  // APPROVE DEPOSIT
-  // --------------------------------------------------
-
-  async function approveDeposit(
-    deposit: Deposit
-  ) {
+  async function approveDeposit(deposit: Deposit) {
     if (!deposit.userId) {
       setError(
         "This deposit does not have a valid user ID."
@@ -389,14 +483,12 @@ export default function Admin() {
       return;
     }
 
-    if (
-      typeof deposit.amount !== "number" ||
-      !Number.isFinite(deposit.amount) ||
-      deposit.amount < MINIMUM_DEPOSIT
-    ) {
+    const amount = Number(deposit.amount || 0);
+
+    if (amount < MINIMUM_DEPOSIT) {
       setError(
-        `This deposit does not meet the minimum deposit requirement of ₦${MINIMUM_DEPOSIT.toLocaleString(
-          "en-NG"
+        `The minimum investment deposit is ${formatMoney(
+          MINIMUM_DEPOSIT
         )}.`
       );
       return;
@@ -404,41 +496,30 @@ export default function Admin() {
 
     if (
       deposit.status?.toLowerCase() ===
-      "approved"
-    ) {
-      setError(
-        "This deposit has already been approved."
-      );
-      return;
-    }
-
-    if (
+        "approved" ||
       deposit.status?.toLowerCase() ===
-      "rejected"
+        "rejected"
     ) {
       setError(
-        "A rejected deposit cannot be approved."
+        "This deposit has already been processed."
       );
       return;
     }
 
     const confirmed = window.confirm(
       `Approve this ${formatMoney(
-        deposit.amount
-      )} deposit from ${
-        deposit.senderName || "Unknown"
-      }?`
+        amount
+      )} investment deposit?`
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     try {
       setProcessingId(deposit.id);
       setError("");
       setMessage("");
-
-      const nextNigeriaMidnight =
-        getNextNigeriaMidnight();
 
       const investmentRef = doc(
         db,
@@ -446,47 +527,27 @@ export default function Admin() {
         deposit.userId
       );
 
+      const nextNigeriaMidnight =
+        getNextNigeriaMidnight();
+
       await setDoc(
         investmentRef,
         {
           status: "ACTIVE",
-
-          investmentAmount:
-            deposit.amount,
-
-          principalAmount:
-            deposit.amount,
-
-          dailyReturn:
-            DAILY_RETURN,
-
-          totalReturns:
-            CYCLE_TOTAL_RETURN,
-
-          cycleDays:
-            CYCLE_DAYS,
-
-          startedAt:
-            serverTimestamp(),
-
+          investmentAmount: amount,
+          principalAmount: amount,
+          dailyReturn: DAILY_RETURN,
+          totalReturns: CYCLE_TOTAL_RETURN,
+          cycleDays: CYCLE_DAYS,
+          startedAt: serverTimestamp(),
           nextReturnAt:
             nextNigeriaMidnight,
-
-          depositId:
-            deposit.id,
-
-          userId:
-            deposit.userId,
-
-          currency:
-            "NGN",
-
-          updatedAt:
-            serverTimestamp(),
+          depositId: deposit.id,
+          userId: deposit.userId,
+          currency: "NGN",
+          updatedAt: serverTimestamp(),
         },
-        {
-          merge: true,
-        }
+        { merge: true }
       );
 
       const depositRef = doc(
@@ -495,72 +556,40 @@ export default function Admin() {
         deposit.id
       );
 
-      await updateDoc(
-        depositRef,
-        {
-          status: "approved",
-
-          approvedAt:
-            serverTimestamp(),
-
-          approvedBy:
-            "admin",
-        }
-      );
+      await updateDoc(depositRef, {
+        status: "approved",
+        approvedAt: serverTimestamp(),
+      });
 
       setMessage(
-        "Deposit approved and investment activated successfully."
+        `Deposit approved. ${formatMoney(
+          amount
+        )} investment activated for the user.`
       );
 
       await loadAdminData();
     } catch (err) {
       console.error(
-        "Deposit approval error:",
+        "Approve deposit error:",
         err
       );
 
       setError(
-        "The deposit could not be approved. Check your Firestore permissions and try again."
+        "The deposit could not be approved. Check your Firestore permissions."
       );
     } finally {
       setProcessingId("");
     }
   }
 
-  // --------------------------------------------------
-  // REJECT DEPOSIT
-  // --------------------------------------------------
-
-  async function rejectDeposit(
-    deposit: Deposit
-  ) {
-    if (
-      deposit.status?.toLowerCase() ===
-      "approved"
-    ) {
-      setError(
-        "An approved deposit cannot be rejected from this section."
-      );
-      return;
-    }
-
-    if (
-      deposit.status?.toLowerCase() ===
-      "rejected"
-    ) {
-      setError(
-        "This deposit has already been rejected."
-      );
-      return;
-    }
-
+  async function rejectDeposit(deposit: Deposit) {
     const confirmed = window.confirm(
-      `Reject this deposit request from ${
-        deposit.senderName || "Unknown"
-      }?`
+      "Are you sure you want to reject this deposit?"
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     try {
       setProcessingId(deposit.id);
@@ -573,27 +602,19 @@ export default function Admin() {
         deposit.id
       );
 
-      await updateDoc(
-        depositRef,
-        {
-          status: "rejected",
-
-          rejectedAt:
-            serverTimestamp(),
-
-          rejectedBy:
-            "admin",
-        }
-      );
+      await updateDoc(depositRef, {
+        status: "rejected",
+        rejectedAt: serverTimestamp(),
+      });
 
       setMessage(
-        "Deposit request rejected."
+        "Deposit rejected successfully."
       );
 
       await loadAdminData();
     } catch (err) {
       console.error(
-        "Deposit rejection error:",
+        "Reject deposit error:",
         err
       );
 
@@ -605,10 +626,6 @@ export default function Admin() {
     }
   }
 
-  // --------------------------------------------------
-  // PROCESS WITHDRAWAL
-  // --------------------------------------------------
-
   async function processWithdrawal(
     withdrawal: Withdrawal
   ) {
@@ -619,13 +636,15 @@ export default function Admin() {
       return;
     }
 
-    if (
-      typeof withdrawal.amount !== "number" ||
-      !Number.isFinite(withdrawal.amount) ||
-      withdrawal.amount < 500
-    ) {
+    const amount = Number(
+      withdrawal.amount || 0
+    );
+
+    if (amount < MINIMUM_DEPOSIT) {
       setError(
-        "This withdrawal amount is invalid."
+        `The minimum withdrawal is ${formatMoney(
+          MINIMUM_DEPOSIT
+        )}.`
       );
       return;
     }
@@ -635,48 +654,32 @@ export default function Admin() {
       "PENDING"
     ) {
       setError(
-        "Only pending withdrawals can be processed."
+        "This withdrawal has already been processed."
       );
       return;
     }
 
     const paymentReference =
       window.prompt(
-        "Enter the payment reference or transaction reference used to send the money:"
+        "Enter the payment reference used for this withdrawal:"
       );
 
-    if (
-      paymentReference === null
-    ) {
-      return;
-    }
-
-    const cleanedReference =
-      paymentReference.trim();
-
-    if (!cleanedReference) {
-      setError(
-        "A payment reference is required before marking the withdrawal as paid."
-      );
+    if (!paymentReference?.trim()) {
       return;
     }
 
     const confirmed = window.confirm(
       `Confirm that ${formatMoney(
-        withdrawal.amount
-      )} has been sent to ${
-        withdrawal.accountHolderName ||
-        withdrawal.userFullName ||
-        "this user"
-      }?`
+        amount
+      )} has actually been sent to ${withdrawal.accountHolderName || "the user"}?`
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     try {
-      setProcessingId(
-        withdrawal.id
-      );
+      setProcessingId(withdrawal.id);
       setError("");
       setMessage("");
 
@@ -686,36 +689,24 @@ export default function Admin() {
         withdrawal.id
       );
 
-      await updateDoc(
-        withdrawalRef,
-        {
-          status: "PAID",
-
-          reviewedAt:
-            serverTimestamp(),
-
-          reviewedBy:
-            "admin",
-
-          paidAt:
-            serverTimestamp(),
-
-          paidBy:
-            "admin",
-
-          paymentReference:
-            cleanedReference,
-        }
-      );
+      await updateDoc(withdrawalRef, {
+        status: "PAID",
+        reviewedAt: serverTimestamp(),
+        reviewedBy: "admin",
+        paidAt: serverTimestamp(),
+        paidBy: "admin",
+        paymentReference:
+          paymentReference.trim(),
+      });
 
       setMessage(
-        "Withdrawal marked as paid successfully."
+        `Withdrawal marked PAID. Payment reference: ${paymentReference.trim()}`
       );
 
       await loadAdminData();
     } catch (err) {
       console.error(
-        "Withdrawal processing error:",
+        "Process withdrawal error:",
         err
       );
 
@@ -727,56 +718,19 @@ export default function Admin() {
     }
   }
 
-  // --------------------------------------------------
-  // REJECT WITHDRAWAL
-  // --------------------------------------------------
-
   async function rejectWithdrawal(
     withdrawal: Withdrawal
   ) {
-    if (
-      withdrawal.status?.toUpperCase() !==
-      "PENDING"
-    ) {
-      setError(
-        "Only pending withdrawals can be rejected."
-      );
-      return;
-    }
-
-    const rejectionReason =
-      window.prompt(
-        "Enter the reason for rejecting this withdrawal:"
-      );
-
-    if (
-      rejectionReason === null
-    ) {
-      return;
-    }
-
-    const cleanedReason =
-      rejectionReason.trim();
-
-    if (!cleanedReason) {
-      setError(
-        "Please enter a rejection reason."
-      );
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Reject the withdrawal of ${formatMoney(
-        withdrawal.amount || 0
-      )}?`
+    const reason = window.prompt(
+      "Enter the reason for rejecting this withdrawal:"
     );
 
-    if (!confirmed) return;
+    if (!reason?.trim()) {
+      return;
+    }
 
     try {
-      setProcessingId(
-        withdrawal.id
-      );
+      setProcessingId(withdrawal.id);
       setError("");
       setMessage("");
 
@@ -786,30 +740,22 @@ export default function Admin() {
         withdrawal.id
       );
 
-      await updateDoc(
-        withdrawalRef,
-        {
-          status: "REJECTED",
-
-          reviewedAt:
-            serverTimestamp(),
-
-          reviewedBy:
-            "admin",
-
-          rejectionReason:
-            cleanedReason,
-        }
-      );
+      await updateDoc(withdrawalRef, {
+        status: "REJECTED",
+        reviewedAt: serverTimestamp(),
+        reviewedBy: "admin",
+        rejectionReason:
+          reason.trim(),
+      });
 
       setMessage(
-        "Withdrawal request rejected."
+        "Withdrawal rejected successfully."
       );
 
       await loadAdminData();
     } catch (err) {
       console.error(
-        "Withdrawal rejection error:",
+        "Reject withdrawal error:",
         err
       );
 
@@ -821,152 +767,152 @@ export default function Admin() {
     }
   }
 
-  // --------------------------------------------------
-  // ADMIN LOGOUT
-  // --------------------------------------------------
-
   async function handleLogout() {
+    sessionStorage.removeItem(
+      "xs_admin_authenticated"
+    );
+
     try {
       await signOut(auth);
-
-      navigate("/login", {
-        replace: true,
-      });
-    } catch (err) {
-      console.error(
-        "Admin logout error:",
-        err
-      );
-    }
-  }
-
-  // --------------------------------------------------
-  // FORMAT MONEY
-  // --------------------------------------------------
-
-  function formatMoney(amount: number) {
-    return `₦${amount.toLocaleString(
-      "en-NG",
-      {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }
-    )}`;
-  }
-
-  // --------------------------------------------------
-  // FORMAT DATE
-  // --------------------------------------------------
-
-  function formatDate(value: any) {
-    if (!value) return "—";
-
-    try {
-      const date =
-        typeof value.toDate === "function"
-          ? value.toDate()
-          : new Date(value);
-
-      if (Number.isNaN(date.getTime())) {
-        return "—";
-      }
-
-      return new Intl.DateTimeFormat(
-        "en-NG",
-        {
-          dateStyle: "medium",
-          timeStyle: "short",
-          timeZone: "Africa/Lagos",
-        }
-      ).format(date);
     } catch {
-      return "—";
+      // Admin password session can still be cleared
+      // even if Firebase sign-out is unnecessary.
     }
+
+    setAuthenticated(false);
+    navigate("/");
   }
 
-  // --------------------------------------------------
-  // ADMIN PASSWORD SCREEN
-  // --------------------------------------------------
+  function getUserInvestment(userId: string) {
+    return investments.find(
+      (investment) =>
+        investment.userId === userId ||
+        investment.id === userId
+    );
+  }
+
+  function getUserTotalDeposited(
+    userId: string
+  ) {
+    return deposits
+      .filter(
+        (deposit) =>
+          deposit.userId === userId &&
+          deposit.status?.toLowerCase() ===
+            "approved"
+      )
+      .reduce(
+        (total, deposit) =>
+          total + Number(deposit.amount || 0),
+        0
+      );
+  }
+
+  function getUserDepositCount(
+    userId: string
+  ) {
+    return deposits.filter(
+      (deposit) =>
+        deposit.userId === userId &&
+        deposit.status?.toLowerCase() ===
+          "approved"
+    ).length;
+  }
+
+  function getUserWithdrawalTotal(
+    userId: string
+  ) {
+    return withdrawals
+      .filter(
+        (withdrawal) =>
+          withdrawal.userId === userId &&
+          withdrawal.status?.toUpperCase() ===
+            "PAID"
+      )
+      .reduce(
+        (total, withdrawal) =>
+          total +
+          Number(withdrawal.amount || 0),
+        0
+      );
+  }
 
   if (!authenticated) {
     return (
       <main className="admin-page">
+        <div className="admin-login-container">
+          <section className="admin-login-card">
+            <div className="admin-logo">
+              <span className="brand-x">
+                X
+              </span>
+              <span className="brand-s">
+                S
+              </span>
+            </div>
 
-        <div className="admin-login-card">
+            <p className="dashboard-eyebrow">
+              XS COMPANY LIMITED
+            </p>
 
-          <div className="admin-logo">
-            X
-          </div>
+            <h1>Admin Panel</h1>
 
-          <p className="dashboard-eyebrow">
-            XS COMPANY LIMITED
-          </p>
-
-          <h1>
-            Admin Panel
-          </h1>
-
-          <p>
-            Enter the administrator password to
-            continue.
-          </p>
-
-          <form
-            onSubmit={handleAdminLogin}
-            className="admin-login-form"
-          >
-
-            <label>
-              Admin password
-
-              <input
-                type="password"
-                value={password}
-                onChange={(event) =>
-                  setPassword(
-                    event.target.value
-                  )
-                }
-                placeholder="Enter password"
-                autoComplete="off"
-                autoFocus
-              />
-            </label>
+            <p>
+              Enter the administrator password
+              to continue.
+            </p>
 
             {passwordError && (
-              <div
-                className="form-error"
-                role="alert"
-              >
+              <div className="admin-error">
                 {passwordError}
               </div>
             )}
 
+            <div className="admin-form-group">
+              <label htmlFor="adminPassword">
+                Admin Password
+              </label>
+
+              <input
+                id="adminPassword"
+                type="password"
+                value={password}
+                onChange={(event) => {
+                  setPassword(
+                    event.target.value
+                  );
+                  setPasswordError("");
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter"
+                  ) {
+                    handleAdminLogin();
+                  }
+                }}
+                placeholder="Enter admin password"
+              />
+            </div>
+
             <button
-              type="submit"
+              type="button"
               className="primary-button"
+              onClick={handleAdminLogin}
             >
               Enter Admin Panel
-            </button>
+                  </button>
 
-          </form>
-
-          <Link
-            to="/dashboard"
-            className="dashboard-back-link"
-          >
-            ← Back to dashboard
-          </Link>
-
+            <Link
+              to="/dashboard"
+              className="admin-back-link"
+            >
+              ← Back to Dashboard
+            </Link>
+          </section>
         </div>
-
       </main>
     );
   }
-
-  // --------------------------------------------------
-  // FILTER DEPOSITS
-  // --------------------------------------------------
 
   const pendingDeposits =
     deposits.filter(
@@ -976,7 +922,7 @@ export default function Admin() {
     );
 
   const approvedDeposits =
-     deposits.filter(
+    deposits.filter(
       (deposit) =>
         deposit.status?.toLowerCase() ===
         "approved"
@@ -988,10 +934,6 @@ export default function Admin() {
         deposit.status?.toLowerCase() ===
         "rejected"
     );
-
-  // --------------------------------------------------
-  // FILTER WITHDRAWALS
-  // --------------------------------------------------
 
   const pendingWithdrawals =
     withdrawals.filter(
@@ -1014,199 +956,208 @@ export default function Admin() {
         "REJECTED"
     );
 
-  // --------------------------------------------------
-  // ADMIN DASHBOARD
-  // --------------------------------------------------
+  const totalApprovedDeposits =
+    approvedDeposits.reduce(
+      (total, deposit) =>
+        total + Number(deposit.amount || 0),
+      0
+    );
+
+  const totalPaidWithdrawals =
+    paidWithdrawals.reduce(
+      (total, withdrawal) =>
+        total +
+        Number(withdrawal.amount || 0),
+      0
+    );
+
+  const totalUserBalances =
+    users.reduce(
+      (total, user) =>
+        total + Number(user.balance || 0),
+      0
+    );
+
+  const totalReferralEarnings =
+    users.reduce(
+      (total, user) =>
+        total +
+        Number(user.referralEarnings || 0),
+      0
+    );
 
   return (
     <main className="admin-page">
-
-      {/* ADMIN NAVBAR */}
-
       <header className="admin-navbar">
+        <Link
+          to="/dashboard"
+          className="dashboard-brand"
+        >
+          <span className="brand-x">X</span>
+          <span className="brand-s">S</span>
+          <span className="brand-name">
+            Company Limited
+          </span>
+        </Link>
 
-        <div className="admin-brand">
-
-          <div className="admin-logo">
-            X
-          </div>
-
-          <div>
-            <strong>
-              XS Company Limited
-            </strong>
-
-            <span>
-              Administrator
-            </span>
-          </div>
-
-        </div>
-
-        <div className="admin-nav-actions">
-
+        <div className="admin-navbar-actions">
           <Link
             to="/dashboard"
-            className="dashboard-back-link"
+            className="admin-back-link"
           >
-            User Dashboard
+            Dashboard
           </Link>
 
           <button
             type="button"
-            className="dashboard-logout"
+            className="admin-logout-button"
             onClick={handleLogout}
           >
             Logout
           </button>
-
         </div>
-
       </header>
 
       <div className="admin-container">
-
-        {/* ADMIN WELCOME */}
-
         <section className="admin-welcome">
-
           <p className="dashboard-eyebrow">
             ADMINISTRATION
           </p>
 
-          <h1>
-            Admin Dashboard
-          </h1>
+          <h1>Welcome to XS Admin</h1>
 
           <p>
-            Manage deposits, withdrawals and
-            portal availability.
+            Manage deposits, withdrawals,
+            users, investments and the
+            withdrawal portal.
           </p>
-
         </section>
-
-        {/* ADMIN SUMMARY */}
-
-        <section className="admin-summary">
-
-          <div className="admin-stat-card">
-            <span>
-              Pending deposits
-            </span>
-
-            <strong>
-              {pendingDeposits.length}
-            </strong>
-          </div>
-
-          <div className="admin-stat-card">
-            <span>
-              Approved deposits
-            </span>
-
-            <strong>
-              {approvedDeposits.length}
-            </strong>
-          </div>
-
-          <div className="admin-stat-card">
-            <span>
-              Pending withdrawals
-            </span>
-
-            <strong>
-              {pendingWithdrawals.length}
-            </strong>
-          </div>
-
-          <div className="admin-stat-card">
-            <span>
-              Paid withdrawals
-            </span>
-
-            <strong>
-              {paidWithdrawals.length}
-            </strong>
-          </div>
-
-        </section>
-
-        {/* SUCCESS MESSAGE */}
 
         {message && (
-          <div
-            className="admin-success-message"
-            role="status"
-          >
+          <div className="admin-success">
             {message}
           </div>
         )}
 
-        {/* ERROR MESSAGE */}
-
         {error && (
-          <div
-            className="form-error"
-            role="alert"
-          >
+          <div className="admin-error">
             {error}
           </div>
         )}
 
+        {/* SUMMARY */}
+        <section className="admin-summary-grid">
+          <article className="admin-summary-card">
+            <span>Total Users</span>
+            <strong>{users.length}</strong>
+          </article>
+
+          <article className="admin-summary-card">
+            <span>Total Balances</span>
+            <strong>
+              {formatMoney(totalUserBalances)}
+            </strong>
+          </article>
+
+          <article className="admin-summary-card">
+            <span>Total Deposited</span>
+            <strong>
+              {formatMoney(
+                totalApprovedDeposits
+              )}
+            </strong>
+          </article>
+
+          <article className="admin-summary-card">
+            <span>Paid Withdrawals</span>
+            <strong>
+              {formatMoney(
+                totalPaidWithdrawals
+              )}
+            </strong>
+          </article>
+
+          <article className="admin-summary-card">
+            <span>Referral Earnings</span>
+            <strong>
+              {formatMoney(
+                totalReferralEarnings
+              )}
+            </strong>
+          </article>
+
+          <article className="admin-summary-card">
+            <span>Pending Deposits</span>
+            <strong>
+              {pendingDeposits.length}
+            </strong>
+          </article>
+
+          <article className="admin-summary-card">
+            <span>Pending Withdrawals</span>
+            <strong>
+              {pendingWithdrawals.length}
+            </strong>
+          </article>
+
+          <article className="admin-summary-card">
+            <span>Active Investments</span>
+            <strong>
+              {
+                investments.filter(
+                  (investment) =>
+                    investment.status?.toUpperCase() ===
+                    "ACTIVE"
+                ).length
+              }
+            </strong>
+          </article>
+        </section>
+
         {/* WITHDRAWAL PORTAL CONTROL */}
-
         <section className="admin-section">
-
-          <div className="admin-section-header">
-
+          <div className="admin-section-heading">
             <div>
-
               <p className="dashboard-eyebrow">
-                WITHDRAWALS
+                USER ACCESS
               </p>
 
               <h2>
-                Withdrawal portal
+                Withdrawal Portal
               </h2>
-
-              <p>
-                Control whether users can submit
-                new withdrawal requests.
-              </p>
-
             </div>
 
+            <div
+              className={
+                withdrawalPortalLocked
+                  ? "admin-status locked"
+                  : "admin-status open"
+              }
+            >
+              {withdrawalPortalLocked
+                ? "LOCKED"
+                : "OPEN"}
+            </div>
           </div>
 
           <div className="admin-portal-control">
-
             <div>
-
-              <span>
-                Current status
-              </span>
-
               <strong>
                 {withdrawalPortalLocked
-                  ? "🔒 Withdrawal portal locked"
-                  : "🟢 Withdrawal portal open"}
+                  ? "Withdrawals are currently locked"
+                  : "Withdrawals are currently available"}
               </strong>
 
               <p>
                 {withdrawalPortalLocked
-                  ? "Users will see that withdrawals are currently unavailable."
-                  : "Users can currently access and submit withdrawal requests."}
+                  ? "Users cannot submit new withdrawal requests."
+                  : "Users can currently submit withdrawal requests."}
               </p>
-
             </div>
 
             <button
               type="button"
-              className={
-                withdrawalPortalLocked
-                  ? "admin-approve-button"
-                  : "admin-reject-button"
-              }
+              className="primary-button"
               onClick={
                 toggleWithdrawalPortal
               }
@@ -1217,1014 +1168,1137 @@ export default function Admin() {
               {withdrawalPortalLoading
                 ? "Updating..."
                 : withdrawalPortalLocked
-                ? "Unlock withdrawal portal"
-                : "Lock withdrawal portal"}
+                ? "Unlock Withdrawals"
+                : "Lock Withdrawals"}
             </button>
-
           </div>
-
         </section>
 
-        {/* PENDING DEPOSITS */}
-
+        {/* USERS */}
         <section className="admin-section">
-
-          <div className="admin-section-header">
-
+          <div className="admin-section-heading">
             <div>
-
               <p className="dashboard-eyebrow">
-                DEPOSITS
+                USERS
               </p>
 
-              <h2>
-                Pending deposit requests
-              </h2>
-
+              <h2>User Accounts</h2>
             </div>
 
-            <button
-              type="button"
-              className="dashboard-secondary-button"
-              onClick={loadAdminData}
-              disabled={loading}
-            >
-              {loading
-                ? "Refreshing..."
-                : "Refresh"}
-            </button>
-
+            <span>
+              {users.length} user
+              {users.length === 1
+                ? ""
+                : "s"}
+            </span>
           </div>
 
           {loading ? (
-
-            <div className="admin-empty-card">
-              Loading deposit requests...
+            <p>Loading users...</p>
+          ) : users.length === 0 ? (
+            <div className="admin-empty-state">
+              No registered users found.
             </div>
-
-          ) : pendingDeposits.length === 0 ? (
-
-            <div className="admin-empty-card">
-
-              <strong>
-                No pending deposits
-              </strong>
-
-              <p>
-                New deposit requests will appear
-                here when users submit them.
-              </p>
-
-            </div>
-
           ) : (
+            <div className="admin-user-list">
+              {users.map((user) => {
+                const investment =
+                  getUserInvestment(user.id);
 
-            <div className="admin-deposit-list">
+                const totalDeposited =
+                  getUserTotalDeposited(
+                    user.id
+                  );
 
-              {pendingDeposits.map(
-                (deposit) => (
+                const depositCount =
+                  getUserDepositCount(
+                    user.id
+                  );
 
+                const withdrawalTotal =
+                  getUserWithdrawalTotal(
+                    user.id
+                  );
+
+                return (
                   <article
-                    key={deposit.id}
-                    className="admin-deposit-card"
+                    key={user.id}
+                    className="admin-user-card"
                   >
-
-                    <div className="admin-deposit-header">
-
+                    <div className="admin-user-card-header">
                       <div>
+                        <p className="dashboard-eyebrow">
+                          USER
+                        </p>
 
-                        <span>
-                          Sender name
-                        </span>
+                        <h3>
+                          {user.fullName ||
+                            "Unnamed User"}
+                        </h3>
+
+                        <p>
+                          {user.email ||
+                            "No email"}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() =>
+                          setSelectedUser(
+                            user
+                          )
+                        }
+                      >
+                        View Details
+                      </button>
+                    </div>
+
+                    <div className="admin-user-grid">
+                      <div>
+                        <span>Balance</span>
 
                         <strong>
-                          {deposit.senderName ||
-                            "Not provided"}
+                          {formatMoney(
+                            user.balance
+                          )}
                         </strong>
-
                       </div>
 
                       <div>
-
                         <span>
-                          Amount
+                          Available Balance
                         </span>
 
                         <strong>
                           {formatMoney(
-                            deposit.amount || 0
+                            user.availableBalance
+                          )}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Total Deposited
+                        </span>
+
+                        <strong>
+                          {formatMoney(
+                            totalDeposited
                           )}
                         </strong>
 
+                        <small>
+                          {depositCount} approved
+                          deposit
+                          {depositCount === 1
+                            ? ""
+                            : "s"}
+                        </small>
                       </div>
 
-                    </div>
+                      <div>
+                        <span>
+                          Referral Earnings
+                        </span>
 
-                    <div className="admin-deposit-details">
+                        <strong>
+                          {formatMoney(
+                            user.referralEarnings
+                          )}
+                        </strong>
+                      </div>
 
                       <div>
-
                         <span>
-                          User ID
+                          Referred Users
                         </span>
+
+                        <strong>
+                          {user.referredUsersCount ??
+                            user.referralCount ??
+                            0}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Paid Withdrawals
+                        </span>
+
+                        <strong>
+                          {formatMoney(
+                            withdrawalTotal
+                          )}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Investment
+                        </span>
+
+                        <strong>
+                          {investment
+                            ? investment.status ||
+                              "—"
+                            : "None"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Investment Amount
+                        </span>
+
+                        <strong>
+                          {formatMoney(
+                            investment?.investmentAmount
+                          )}
+                        </strong>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* PENDING DEPOSITS */}
+        <section className="admin-section">
+          <div className="admin-section-heading">
+            <div>
+              <p className="dashboard-eyebrow">
+                DEPOSITS
+              </p>
+
+              <h2>Pending Deposits</h2>
+            </div>
+
+            <span>
+              {pendingDeposits.length}
+            </span>
+          </div>
+
+          {pendingDeposits.length === 0 ? (
+            <div className="admin-empty-state">
+              No pending deposits.
+            </div>
+          ) : (
+            <div className="admin-list">
+              {pendingDeposits.map(
+                (deposit) => (
+                  <article
+                    key={deposit.id}
+                    className="admin-item-card"
+                  >
+                    <div className="admin-item-header">
+                      <div>
+                        <h3>
+                          {formatMoney(
+                            deposit.amount
+                          )}
+                        </h3>
+
+                        <p>
+                          {deposit.senderName ||
+                            "Sender name not provided"}
+                        </p>
+                      </div>
+
+                      <span className="admin-status pending">
+                        PENDING
+                      </span>
+                    </div>
+
+                    <div className="admin-item-grid">
+                      <div>
+                        <span>User ID</span>
 
                         <p>
                           {deposit.userId ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
+                        <span>Type</span>
 
-                        <span>
-                          Submitted
-                        </span>
+                        <p>
+                          {deposit.type ||
+                            "investment"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <span>Submitted</span>
 
                         <p>
                           {formatDate(
                             deposit.createdAt
                           )}
                         </p>
-
                       </div>
-
-                      <div>
-
-                        <span>
-                          Status
-                        </span>
-
-                        <p>
-                          <strong>
-                            Pending
-                          </strong>
-                        </p>
-
-                      </div>
-
                     </div>
 
-                    <div className="admin-deposit-actions">
-
+                    <div className="admin-actions">
                       <button
                         type="button"
-                        className="admin-approve-button"
+                        className="primary-button"
+                        disabled={
+                          processingId ===
+                          deposit.id
+                        }
                         onClick={() =>
                           approveDeposit(
                             deposit
                           )
                         }
-                        disabled={
-                          processingId ===
-                          deposit.id
-                        }
                       >
                         {processingId ===
                         deposit.id
                           ? "Processing..."
-                          : "Approve deposit"}
+                          : "Approve Deposit"}
                       </button>
 
                       <button
                         type="button"
-                        className="admin-reject-button"
+                        className="danger-button"
+                        disabled={
+                          processingId ===
+                          deposit.id
+                        }
                         onClick={() =>
                           rejectDeposit(
                             deposit
                           )
                         }
-                        disabled={
-                          processingId ===
-                          deposit.id
-                        }
                       >
                         Reject
                       </button>
-
                     </div>
-
                   </article>
-
                 )
               )}
-
             </div>
-
           )}
-
         </section>
 
         {/* PENDING WITHDRAWALS */}
-
         <section className="admin-section">
-
-          <div className="admin-section-header">
-
+          <div className="admin-section-heading">
             <div>
-
               <p className="dashboard-eyebrow">
                 WITHDRAWALS
               </p>
 
               <h2>
-                Pending withdrawal requests
+                Pending Withdrawals
               </h2>
-
             </div>
 
-            <button
-              type="button"
-              className="dashboard-secondary-button"
-              onClick={loadAdminData}
-              disabled={loading}
-            >
-              {loading
-                ? "Refreshing..."
-                : "Refresh"}
-            </button>
-
+            <span>
+              {pendingWithdrawals.length}
+            </span>
           </div>
 
-          {loading ? (
-
-            <div className="admin-empty-card">
-              Loading withdrawal requests...
+          {pendingWithdrawals.length ===
+          0 ? (
+            <div className="admin-empty-state">
+              No pending withdrawals.
             </div>
-
-          ) : pendingWithdrawals.length === 0 ? (
-
-            <div className="admin-empty-card">
-
-              <strong>
-                No pending withdrawals
-              </strong>
-
-              <p>
-                New withdrawal requests will
-                appear here when users submit them.
-              </p>
-
-            </div>
-
           ) : (
-
-            <div className="admin-deposit-list">
-
+            <div className="admin-list">
               {pendingWithdrawals.map(
                 (withdrawal) => (
-
                   <article
                     key={withdrawal.id}
-                    className="admin-deposit-card"
+                    className="admin-item-card"
                   >
-
-                    <div className="admin-deposit-header">
-
+                    <div className="admin-item-header">
                       <div>
-
-                        <span>
-                          User
-                        </span>
-
-                        <strong>
-                          {withdrawal.userFullName ||
-                            "Unknown user"}
-                        </strong>
-
-                      </div>
-
-                      <div>
-
-                        <span>
-                          Amount
-                        </span>
-
-                        <strong>
+                        <h3>
                           {formatMoney(
-                            withdrawal.amount || 0
+                            withdrawal.amount
                           )}
-                        </strong>
+                        </h3>
 
+                        <p>
+                          {withdrawal.userFullName ||
+                            "XS User"}
+                        </p>
                       </div>
 
+                      <span className="admin-status pending">
+                        PENDING
+                      </span>
                     </div>
 
-                    <div className="admin-deposit-details">
-
+                    <div className="admin-item-grid">
                       <div>
-
-                        <span>
-                          Email
-                        </span>
+                        <span>Email</span>
 
                         <p>
                           {withdrawal.userEmail ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
-
-                        <span>
-                          Bank
-                        </span>
+                        <span>Bank</span>
 
                         <p>
                           {withdrawal.bankName ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
-
                         <span>
-                          Account number
+                          Account Number
                         </span>
 
                         <p>
                           {withdrawal.accountNumber ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
-
                         <span>
-                          Account holder
+                          Account Holder
                         </span>
 
                         <p>
                           {withdrawal.accountHolderName ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
-
-                        <span>
-                          Reference
-                        </span>
+                        <span>Reference</span>
 
                         <p>
                           {withdrawal.reference ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
-
-                        <span>
-                          Submitted
-                        </span>
+                        <span>Requested</span>
 
                         <p>
                           {formatDate(
                             withdrawal.createdAt
                           )}
                         </p>
-
                       </div>
-
                     </div>
 
-                    <div className="admin-deposit-actions">
-
+                    <div className="admin-actions">
                       <button
                         type="button"
-                        className="admin-approve-button"
+                        className="primary-button"
+                        disabled={
+                          processingId ===
+                          withdrawal.id
+                        }
                         onClick={() =>
                           processWithdrawal(
                             withdrawal
                           )
                         }
-                        disabled={
-                          processingId ===
-                          withdrawal.id
-                        }
                       >
                         {processingId ===
                         withdrawal.id
                           ? "Processing..."
-                          : "Mark as paid"}
+                          : "Mark as Paid"}
                       </button>
 
                       <button
                         type="button"
-                        className="admin-reject-button"
-                        onClick={() =>
-                          rejectWithdrawal(
-                            withdrawal
-                          )
-                        }
+                        className="danger-button"
                         disabled={
                           processingId ===
                           withdrawal.id
                         }
+                        onClick={() =>
+                                   onClick={() =>
+                            rejectWithdrawal(
+                              withdrawal
+                            )
+                          }
+                        }
                       >
                         Reject
                       </button>
-
                     </div>
-
                   </article>
-
                 )
               )}
-
             </div>
-
           )}
-
         </section>
 
         {/* APPROVED DEPOSITS */}
-
         <section className="admin-section">
-
-          <div className="admin-section-header">
-
+          <div className="admin-section-heading">
             <div>
-
               <p className="dashboard-eyebrow">
-                APPROVED
+                DEPOSITS
               </p>
 
-              <h2>
-                Approved deposits
-              </h2>
-
+              <h2>Approved Deposits</h2>
             </div>
 
+            <span>
+              {approvedDeposits.length}
+            </span>
           </div>
 
           {approvedDeposits.length === 0 ? (
-
-            <div className="admin-empty-card">
-
-              <strong>
-                No approved deposits
-              </strong>
-
+            <div className="admin-empty-state">
+              No approved deposits.
             </div>
-
           ) : (
-
-            <div className="admin-deposit-list">
-
+            <div className="admin-list">
               {approvedDeposits.map(
                 (deposit) => (
-
                   <article
                     key={deposit.id}
-                    className="admin-deposit-card"
+                    className="admin-item-card"
                   >
-
-                    <div className="admin-deposit-header">
-
+                    <div className="admin-item-header">
                       <div>
-
-                        <span>
-                          Sender name
-                        </span>
-
-                        <strong>
-                          {deposit.senderName ||
-                            "Not provided"}
-                        </strong>
-
-                      </div>
-
-                      <div>
-
-                        <span>
-                          Amount
-                        </span>
-
-                        <strong>
+                        <h3>
                           {formatMoney(
-                            deposit.amount || 0
+                            deposit.amount
                           )}
-                        </strong>
+                        </h3>
 
+                        <p>
+                          {deposit.senderName ||
+                            "Sender name not provided"}
+                        </p>
                       </div>
 
+                      <span className="admin-status approved">
+                        APPROVED
+                      </span>
                     </div>
 
-                    <div className="admin-deposit-details">
-
+                    <div className="admin-item-grid">
                       <div>
-
-                        <span>
-                          User ID
-                        </span>
+                        <span>User ID</span>
 
                         <p>
                           {deposit.userId ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
+                        <span>Type</span>
 
-                        <span>
-                          Approved
-                        </span>
+                        <p>
+                          {deposit.type ||
+                            "investment"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <span>Approved</span>
 
                         <p>
                           {formatDate(
-                            deposit.approvedAt
+                            deposit.approvedAt ||
+                              deposit.createdAt
                           )}
                         </p>
-
                       </div>
-
                     </div>
-
                   </article>
-
                 )
               )}
-
             </div>
-
           )}
-
         </section>
 
         {/* PAID WITHDRAWALS */}
-
         <section className="admin-section">
-
-          <div className="admin-section-header">
-
+          <div className="admin-section-heading">
             <div>
-
               <p className="dashboard-eyebrow">
-                PAID
+                WITHDRAWALS
               </p>
 
-              <h2>
-                Paid withdrawals
-              </h2>
-
+              <h2>Paid Withdrawals</h2>
             </div>
 
+            <span>
+              {paidWithdrawals.length}
+            </span>
           </div>
 
           {paidWithdrawals.length === 0 ? (
-
-            <div className="admin-empty-card">
-
-              <strong>
-                No paid withdrawals
-              </strong>
-
+            <div className="admin-empty-state">
+              No paid withdrawals.
             </div>
-
           ) : (
-
-            <div className="admin-deposit-list">
-
+            <div className="admin-list">
               {paidWithdrawals.map(
                 (withdrawal) => (
-
                   <article
                     key={withdrawal.id}
-                    className="admin-deposit-card"
+                    className="admin-item-card"
                   >
-
-                    <div className="admin-deposit-header">
-
+                    <div className="admin-item-header">
                       <div>
-
-                        <span>
-                          User
-                        </span>
-
-                        <strong>
-                          {withdrawal.userFullName ||
-                            "Unknown user"}
-                        </strong>
-
-                      </div>
-
-                      <div>
-
-                        <span>
-                          Amount paid
-                        </span>
-
-                        <strong>
+                        <h3>
                           {formatMoney(
-                            withdrawal.amount || 0
+                            withdrawal.amount
                           )}
-                        </strong>
+                        </h3>
 
+                        <p>
+                          {withdrawal.userFullName ||
+                            "XS User"}
+                        </p>
                       </div>
 
+                      <span className="admin-status paid">
+                        PAID
+                      </span>
                     </div>
 
-                    <div className="admin-deposit-details">
+                    <div className="admin-item-grid">
+                      <div>
+                        <span>Email</span>
+
+                        <p>
+                          {withdrawal.userEmail ||
+                            "—"}
+                        </p>
+                      </div>
 
                       <div>
-
-                        <span>
-                          Bank
-                        </span>
+                        <span>Bank</span>
 
                         <p>
                           {withdrawal.bankName ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
-
                         <span>
-                          Account number
+                          Account Number
                         </span>
 
                         <p>
                           {withdrawal.accountNumber ||
                             "—"}
                         </p>
-
                       </div>
 
-                         <div>
-
+                      <div>
                         <span>
-                          Account holder
+                          Account Holder
                         </span>
 
                         <p>
                           {withdrawal.accountHolderName ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
-
                         <span>
-                          Payment reference
+                          Payment Reference
                         </span>
 
                         <p>
                           {withdrawal.paymentReference ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
-
-                        <span>
-                          Paid
-                        </span>
+                        <span>Paid</span>
 
                         <p>
                           {formatDate(
-                            withdrawal.paidAt
+                            withdrawal.paidAt ||
+                              withdrawal.reviewedAt ||
+                              withdrawal.createdAt
                           )}
                         </p>
-
                       </div>
-
                     </div>
-
                   </article>
-
                 )
               )}
-
             </div>
-
           )}
-
         </section>
 
         {/* REJECTED WITHDRAWALS */}
-
         <section className="admin-section">
-
-          <div className="admin-section-header">
-
+          <div className="admin-section-heading">
             <div>
-
               <p className="dashboard-eyebrow">
-                REJECTED
+                WITHDRAWALS
               </p>
 
-              <h2>
-                Rejected withdrawals
-              </h2>
-
+              <h2>Rejected Withdrawals</h2>
             </div>
 
+            <span>
+              {rejectedWithdrawals.length}
+            </span>
           </div>
 
           {rejectedWithdrawals.length === 0 ? (
-
-            <div className="admin-empty-card">
-
-              <strong>
-                No rejected withdrawals
-              </strong>
-
+            <div className="admin-empty-state">
+              No rejected withdrawals.
             </div>
-
           ) : (
-
-            <div className="admin-deposit-list">
-
+            <div className="admin-list">
               {rejectedWithdrawals.map(
                 (withdrawal) => (
-
                   <article
                     key={withdrawal.id}
-                    className="admin-deposit-card"
+                    className="admin-item-card"
                   >
-
-                    <div className="admin-deposit-header">
-
+                    <div className="admin-item-header">
                       <div>
-
-                        <span>
-                          User
-                        </span>
-
-                        <strong>
-                          {withdrawal.userFullName ||
-                            "Unknown user"}
-                        </strong>
-
-                      </div>
-
-                      <div>
-
-                        <span>
-                          Amount requested
-                        </span>
-
-                        <strong>
+                        <h3>
                           {formatMoney(
-                            withdrawal.amount || 0
+                            withdrawal.amount
                           )}
-                        </strong>
+                        </h3>
 
+                        <p>
+                          {withdrawal.userFullName ||
+                            "XS User"}
+                        </p>
                       </div>
 
+                      <span className="admin-status rejected">
+                        REJECTED
+                      </span>
                     </div>
 
-                    <div className="admin-deposit-details">
+                    <div className="admin-item-grid">
+                      <div>
+                        <span>Email</span>
+
+                        <p>
+                          {withdrawal.userEmail ||
+                            "—"}
+                        </p>
+                      </div>
 
                       <div>
-
-                        <span>
-                          Bank
-                        </span>
+                        <span>Bank</span>
 
                         <p>
                           {withdrawal.bankName ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
-
-                        <span>
-                          Account number
-                        </span>
+                        <span>Account Number</span>
 
                         <p>
                           {withdrawal.accountNumber ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
-
-                        <span>
-                          Account holder
-                        </span>
+                        <span>Account Holder</span>
 
                         <p>
                           {withdrawal.accountHolderName ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
-
-                        <span>
-                          Reference
-                        </span>
-
-                        <p>
-                          {withdrawal.reference ||
-                            "—"}
-                        </p>
-
-                      </div>
-
-                      <div>
-
-                        <span>
-                          Rejection reason
-                        </span>
+                        <span>Reason</span>
 
                         <p>
                           {withdrawal.rejectionReason ||
                             "No reason provided"}
                         </p>
-
                       </div>
 
                       <div>
-
-                        <span>
-                          Reviewed
-                        </span>
+                        <span>Reviewed</span>
 
                         <p>
                           {formatDate(
-                            withdrawal.reviewedAt
+                            withdrawal.reviewedAt ||
+                              withdrawal.createdAt
                           )}
                         </p>
-
                       </div>
-
                     </div>
-
                   </article>
-
                 )
               )}
-
             </div>
-
           )}
-
         </section>
 
         {/* REJECTED DEPOSITS */}
-
         <section className="admin-section">
-
-          <div className="admin-section-header">
-
+          <div className="admin-section-heading">
             <div>
-
               <p className="dashboard-eyebrow">
-                REJECTED
+                DEPOSITS
               </p>
 
-              <h2>
-                Rejected deposits
-              </h2>
-
+              <h2>Rejected Deposits</h2>
             </div>
 
+            <span>
+              {rejectedDeposits.length}
+            </span>
           </div>
 
           {rejectedDeposits.length === 0 ? (
-
-            <div className="admin-empty-card">
-
-              <strong>
-                No rejected deposits
-              </strong>
-
+            <div className="admin-empty-state">
+              No rejected deposits.
             </div>
-
           ) : (
-
-            <div className="admin-deposit-list">
-
+            <div className="admin-list">
               {rejectedDeposits.map(
                 (deposit) => (
-
                   <article
                     key={deposit.id}
-                    className="admin-deposit-card"
+                    className="admin-item-card"
                   >
-
-                    <div className="admin-deposit-header">
-
+                    <div className="admin-item-header">
                       <div>
-
-                        <span>
-                          Sender name
-                        </span>
-
-                        <strong>
-                          {deposit.senderName ||
-                            "Not provided"}
-                        </strong>
-
-                      </div>
-
-                      <div>
-
-                        <span>
-                          Amount
-                        </span>
-
-                        <strong>
+                        <h3>
                           {formatMoney(
-                            deposit.amount || 0
+                            deposit.amount
                           )}
-                        </strong>
+                        </h3>
 
+                        <p>
+                          {deposit.senderName ||
+                            "Sender name not provided"}
+                        </p>
                       </div>
 
+                      <span className="admin-status rejected">
+                        REJECTED
+                      </span>
                     </div>
 
-                    <div className="admin-deposit-details">
-
+                    <div className="admin-item-grid">
                       <div>
-
-                        <span>
-                          User ID
-                        </span>
+                        <span>User ID</span>
 
                         <p>
                           {deposit.userId ||
                             "—"}
                         </p>
-
                       </div>
 
                       <div>
+                        <span>Type</span>
 
-                        <span>
-                          Rejected
-                        </span>
+                        <p>
+                          {deposit.type ||
+                            "investment"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <span>Rejected</span>
 
                         <p>
                           {formatDate(
-                            deposit.rejectedAt
+                            deposit.rejectedAt ||
+                              deposit.createdAt
                           )}
                         </p>
-
                       </div>
-
-                      <div>
-
-                        <span>
-                          Status
-                        </span>
-
-                        <p>
-                          <strong>
-                            Rejected
-                          </strong>
-                        </p>
-
-                      </div>
-
                     </div>
-
                   </article>
-
                 )
               )}
-
             </div>
-
           )}
-
         </section>
 
-        {/* ADMIN FOOTER */}
+        {/* USER DETAILS MODAL */}
+        {selectedUser && (
+          <div
+            className="admin-modal-overlay"
+            onClick={() =>
+              setSelectedUser(null)
+            }
+          >
+            <div
+              className="admin-modal"
+              onClick={(event) =>
+                event.stopPropagation()
+              }
+            >
+              <div className="admin-modal-header">
+                <div>
+                  <p className="dashboard-eyebrow">
+                    USER DETAILS
+                  </p>
 
-        <footer className="admin-footer">
+                  <h2>
+                    {selectedUser.fullName ||
+                      "Unnamed User"}
+                  </h2>
+                </div>
 
+                <button
+                  type="button"
+                  className="admin-close-button"
+                  onClick={() =>
+                    setSelectedUser(null)
+                  }
+                >
+                  ×
+                </button>
+              </div>
+
+              {(() => {
+                const investment =
+                  getUserInvestment(
+                    selectedUser.id
+                  );
+
+                const totalDeposited =
+                  getUserTotalDeposited(
+                    selectedUser.id
+                  );
+
+                const depositCount =
+                  getUserDepositCount(
+                    selectedUser.id
+                  );
+
+                const withdrawalTotal =
+                  getUserWithdrawalTotal(
+                    selectedUser.id
+                  );
+
+                return (
+                  <div className="admin-detail-grid">
+                    <div>
+                      <span>Full Name</span>
+
+                      <strong>
+                        {selectedUser.fullName ||
+                          "—"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Email</span>
+
+                      <strong>
+                        {selectedUser.email ||
+                          "—"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Phone</span>
+
+                      <strong>
+                        {selectedUser.phone ||
+                          "—"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>UID</span>
+
+                      <strong>
+                        {selectedUser.id}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Balance</span>
+
+                      <strong>
+                        {formatMoney(
+                          selectedUser.balance
+                        )}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>
+                        Available Balance
+                      </span>
+
+                      <strong>
+                        {formatMoney(
+                          selectedUser.availableBalance
+                        )}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Total Deposited</span>
+
+                      <strong>
+                        {formatMoney(
+                          totalDeposited
+                        )}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>
+                        Approved Deposits
+                      </span>
+
+                      <strong>
+                        {depositCount}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Referral Code</span>
+
+                      <strong>
+                        {selectedUser.referralCode ||
+                          "—"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>
+                        Referred Users
+                      </span>
+
+                      <strong>
+                        {selectedUser.referredUsersCount ??
+                          selectedUser.referralCount ??
+                          0}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>
+                        Referral Earnings
+                      </span>
+
+                      <strong>
+                        {formatMoney(
+                          selectedUser.referralEarnings
+                        )}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>
+                        Total Paid Withdrawals
+                      </span>
+
+                      <strong>
+                        {formatMoney(
+                          withdrawalTotal
+                        )}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>
+                        Investment Status
+                      </span>
+
+                      <strong>
+                        {investment?.status ||
+                          selectedUser.investmentStatus ||
+                          "None"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>
+                        Investment Amount
+                      </span>
+
+                      <strong>
+                        {formatMoney(
+                          investment?.investmentAmount
+                        )}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Daily Return</span>
+
+                      <strong>
+                        {formatMoney(
+                          investment?.dailyReturn
+                        )}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>
+                        Cycle Total Return
+                      </span>
+
+                      <strong>
+                        {formatMoney(
+                          investment?.totalReturns
+                        )}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Referred By</span>
+
+                      <strong>
+                        {selectedUser.referredBy ||
+                          "—"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Registered</span>
+
+                      <strong>
+                        {formatDate(
+                          selectedUser.createdAt
+                        )}
+                      </strong>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        <footer className="dashboard-footer">
           <p>
-            XS Company Limited — Administration
+            © {new Date().getFullYear()} XS
+            Company Limited. Admin Panel.
           </p>
-
-          <p>
-            Deposit and withdrawal requests are
-            reviewed manually.
-          </p>
-
         </footer>
-
       </div>
-
     </main>
   );
-  }
+                                     }
