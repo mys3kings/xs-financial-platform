@@ -1,11 +1,26 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { doc, getDoc, addDoc, collection, serverTimestamp, query, where, getDocs } from "firebase/firestore";
+import {
+  Link,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
+
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from "firebase/firestore";
 
 import { registerUser } from "./auth";
 import { saveUserConsents } from "./consents";
-import { createUserProfile } from "./users";
 import { db } from "./firebase";
+
+const REFERRAL_COMMISSION = 50;
 
 const consentItems = [
   {
@@ -50,7 +65,10 @@ type ReferrerInfo = {
 };
 
 function generateReferralCode() {
-  const randomNumber = Math.floor(100000 + Math.random() * 900000);
+  const randomNumber = Math.floor(
+    100000 + Math.random() * 900000
+  );
+
   return `XS${randomNumber}`;
 }
 
@@ -87,27 +105,32 @@ export default function Register() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] =
+    useState("");
 
   const [referralCode, setReferralCode] =
     useState(referralFromUrl);
 
-  const [consents, setConsents] = useState<ConsentState>({
-    terms: false,
-    privacy: false,
-    investment: false,
-    referral: false,
-    platform: false,
-  });
+  const [consents, setConsents] =
+    useState<ConsentState>({
+      terms: false,
+      privacy: false,
+      investment: false,
+      referral: false,
+      platform: false,
+    });
 
   const [loading, setLoading] = useState(false);
+
   const [validatingReferral, setValidatingReferral] =
     useState(false);
+
   const [referrerInfo, setReferrerInfo] =
     useState<ReferrerInfo | null>(null);
 
   const [error, setError] = useState("");
-  const [referralError, setReferralError] = useState("");
+  const [referralError, setReferralError] =
+    useState("");
 
   useEffect(() => {
     if (referralFromUrl) {
@@ -134,7 +157,8 @@ export default function Register() {
   async function findReferrer(
     code: string
   ): Promise<ReferrerInfo | null> {
-    const cleanCode = code.trim().toUpperCase();
+    const cleanCode =
+      code.trim().toUpperCase();
 
     if (!cleanCode) {
       return null;
@@ -142,18 +166,25 @@ export default function Register() {
 
     const usersQuery = query(
       collection(db, "users"),
-      where("referralCode", "==", cleanCode)
+      where(
+        "referralCode",
+        "==",
+        cleanCode
+      )
     );
 
-    const snapshot = await getDocs(usersQuery);
+    const snapshot =
+      await getDocs(usersQuery);
 
     if (snapshot.empty) {
       return null;
     }
 
-    const referrerDocument = snapshot.docs[0];
+    const referrerDocument =
+      snapshot.docs[0];
 
-    const data = referrerDocument.data();
+    const data =
+      referrerDocument.data();
 
     return {
       userId: referrerDocument.id,
@@ -163,7 +194,8 @@ export default function Register() {
   }
 
   async function validateReferralCode() {
-    const cleanCode = referralCode.trim().toUpperCase();
+    const cleanCode =
+      referralCode.trim().toUpperCase();
 
     setReferralError("");
     setReferrerInfo(null);
@@ -175,7 +207,8 @@ export default function Register() {
     try {
       setValidatingReferral(true);
 
-      const referrer = await findReferrer(cleanCode);
+      const referrer =
+        await findReferrer(cleanCode);
 
       if (!referrer) {
         setReferralError(
@@ -189,7 +222,10 @@ export default function Register() {
 
       return true;
     } catch (err) {
-      console.error("REFERRAL VALIDATION ERROR:", err);
+      console.error(
+        "REFERRAL VALIDATION ERROR:",
+        err
+      );
 
       setReferralError(
         "We could not verify the referral code right now. Please try again."
@@ -202,15 +238,25 @@ export default function Register() {
   }
 
   async function generateUniqueReferralCode() {
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const newCode = generateReferralCode();
+    for (
+      let attempt = 0;
+      attempt < 10;
+      attempt++
+    ) {
+      const newCode =
+        generateReferralCode();
 
       const codeQuery = query(
         collection(db, "users"),
-        where("referralCode", "==", newCode)
+        where(
+          "referralCode",
+          "==",
+          newCode
+        )
       );
 
-      const snapshot = await getDocs(codeQuery);
+      const snapshot =
+        await getDocs(codeQuery);
 
       if (snapshot.empty) {
         return newCode;
@@ -230,11 +276,19 @@ export default function Register() {
     setError("");
     setReferralError("");
 
-    const cleanFullName = fullName.trim();
-    const cleanPhone = phone.trim();
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanFullName =
+      fullName.trim();
+
+    const cleanPhone =
+      phone.trim();
+
+    const cleanEmail =
+      email.trim().toLowerCase();
+
     const cleanReferralCode =
-      referralCode.trim().toUpperCase();
+      referralCode
+        .trim()
+        .toUpperCase();
 
     if (!allConsentsAccepted) {
       setError(
@@ -244,17 +298,23 @@ export default function Register() {
     }
 
     if (!cleanFullName) {
-      setError("Please enter your full name.");
+      setError(
+        "Please enter your full name."
+      );
       return;
     }
 
     if (!cleanPhone) {
-      setError("Please enter your phone number.");
+      setError(
+        "Please enter your phone number."
+      );
       return;
     }
 
     if (!cleanEmail) {
-      setError("Please enter your email address.");
+      setError(
+        "Please enter your email address."
+      );
       return;
     }
 
@@ -266,7 +326,9 @@ export default function Register() {
     }
 
     if (password !== confirmPassword) {
-      setError("Your passwords do not match.");
+      setError(
+        "Your passwords do not match."
+      );
       return;
     }
 
@@ -274,35 +336,38 @@ export default function Register() {
       setLoading(true);
 
       /*
-       * Validate the referral BEFORE creating the account.
-       * This prevents an invalid referral code from being
-       * attached to the new account.
+       * Validate the referral before creating
+       * the Firebase account.
        */
-      let validatedReferrer: ReferrerInfo | null = null;
+      let validatedReferrer:
+        | ReferrerInfo
+        | null = null;
 
       if (cleanReferralCode) {
-        validatedReferrer = await findReferrer(
-          cleanReferralCode
-        );
+        validatedReferrer =
+          await findReferrer(
+            cleanReferralCode
+          );
 
         if (!validatedReferrer) {
           setReferralError(
             "That referral code could not be found. Please check the code and try again."
           );
 
-          setLoading(false);
           return;
         }
       }
 
       /*
-       * Generate the new user's own referral code.
+       * Generate this user's own unique
+       * referral code.
        */
       const ownReferralCode =
         await generateUniqueReferralCode();
 
       /*
-       * Create Firebase Authentication account.
+       * Create Firebase Authentication
+       * account.
        */
       const user = await registerUser(
         cleanEmail,
@@ -311,44 +376,110 @@ export default function Register() {
       );
 
       /*
-       * Create the user's Firestore profile.
+       * Create the complete initial user
+       * profile.
        *
-       * referralCode = THIS USER'S OWN referral code.
+       * These fields are deliberately
+       * initialized here so the Dashboard,
+       * Referral system, Investment system
+       * and Admin panel have a consistent
+       * starting structure.
        */
-      await createUserProfile({
-        userId: user.uid,
-        fullName: cleanFullName,
-        phone: cleanPhone,
-        email: cleanEmail,
-        referralCode: ownReferralCode,
-      });
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          userId: user.uid,
+
+          fullName: cleanFullName,
+
+          phone: cleanPhone,
+
+          email: cleanEmail,
+
+          referralCode:
+            ownReferralCode,
+
+          referredBy:
+            validatedReferrer?.referralCode ||
+            "",
+
+          balance: 0,
+
+          availableBalance: 0,
+
+          referralEarnings: 0,
+
+          referredUsersCount: 0,
+
+          referralCount: 0,
+
+          investmentStatus: "NONE",
+
+          investmentAmount: 0,
+
+          totalDeposited: 0,
+
+          totalWithdrawn: 0,
+
+          totalReturns: 0,
+
+          totalReferralEarnings: 0,
+
+          createdAt:
+            serverTimestamp(),
+
+          updatedAt:
+            serverTimestamp(),
+        }
+      );
 
       /*
-       * If the user registered through another user's
-       * referral link, save the relationship.
+       * If another user referred this
+       * account, create the referral
+       * relationship.
+       *
+       * The referral starts as REGISTERED.
+       * It does NOT receive the ₦50 commission
+       * at registration.
+       *
+       * Qualification will happen later
+       * when the required investment/deposit
+       * condition is fulfilled.
        */
       if (validatedReferrer) {
-        const newReferralRef = await addDoc(
-          collection(db, "referrals"),
-          {
-            referrerUserId: validatedReferrer.userId,
-            referredUserId: user.uid,
+        const newReferralRef =
+          await addDoc(
+            collection(db, "referrals"),
+            {
+              referrerUserId:
+                validatedReferrer.userId,
 
-            referralCode:
-              validatedReferrer.referralCode,
+              referredUserId:
+                user.uid,
 
-            referredName: cleanFullName,
+              referralCode:
+                validatedReferrer.referralCode,
 
-            status: "REGISTERED",
+              referredName:
+                cleanFullName,
 
-            registeredAt: serverTimestamp(),
+              status: "REGISTERED",
 
-            depositApprovedAt: null,
-            qualifiedAt: null,
+              registeredAt:
+                serverTimestamp(),
 
-            commissionAmount: 50,
-          }
-        );
+              depositApprovedAt: null,
+
+              qualifiedAt: null,
+
+              commissionAmount:
+                REFERRAL_COMMISSION,
+
+              commissionPaid: false,
+
+              commissionPaidAt: null,
+            }
+          );
 
         console.log(
           "Referral relationship created:",
@@ -357,9 +488,12 @@ export default function Register() {
       }
 
       /*
-       * Save the five required consent records.
+       * Save all five required consent
+       * records.
        */
-      await saveUserConsents(user.uid);
+      await saveUserConsents(
+        user.uid
+      );
 
       /*
        * Registration completed.
@@ -368,15 +502,15 @@ export default function Register() {
         replace: true,
       });
     } catch (err: any) {
-      console.error("REGISTRATION ERROR:", err);
+      console.error(
+        "REGISTRATION ERROR:",
+        err
+      );
 
-      /*
-       * If Firebase Auth has already created the account but
-       * another operation failed, don't expose internal
-       * Firebase errors to the user.
-       */
       setError(
-        getRegisterErrorMessage(err?.code || "")
+        getRegisterErrorMessage(
+          err?.code || ""
+        )
       );
     } finally {
       setLoading(false);
@@ -391,8 +525,13 @@ export default function Register() {
           className="auth-brand"
           aria-label="XS Company Limited"
         >
-          <span className="brand-x">X</span>
-          <span className="brand-s">S</span>
+          <span className="brand-x">
+            X
+          </span>
+
+          <span className="brand-s">
+            S
+          </span>
         </Link>
 
         <div className="auth-heading">
@@ -400,16 +539,23 @@ export default function Register() {
             XS COMPANY LIMITED
           </p>
 
-          <h1>Create your account</h1>
+          <h1>
+            Create your account
+          </h1>
 
           <p>
-            Create an XS account to access your dashboard,
-            investment information and referral programme.
+            Create an XS account to access
+            your dashboard, investment
+            information and referral
+            programme.
           </p>
         </div>
 
         {error && (
-          <div className="auth-error" role="alert">
+          <div
+            className="auth-error"
+            role="alert"
+          >
             {error}
           </div>
         )}
@@ -428,7 +574,9 @@ export default function Register() {
               type="text"
               value={fullName}
               onChange={(event) =>
-                setFullName(event.target.value)
+                setFullName(
+                  event.target.value
+                )
               }
               placeholder="Enter your full name"
               autoComplete="name"
@@ -446,7 +594,9 @@ export default function Register() {
               type="tel"
               value={phone}
               onChange={(event) =>
-                setPhone(event.target.value)
+                setPhone(
+                  event.target.value
+                )
               }
               placeholder="Enter your phone number"
               autoComplete="tel"
@@ -464,7 +614,9 @@ export default function Register() {
               type="email"
               value={email}
               onChange={(event) =>
-                setEmail(event.target.value)
+                setEmail(
+                  event.target.value
+                )
               }
               placeholder="Enter your email address"
               autoComplete="email"
@@ -482,7 +634,9 @@ export default function Register() {
               type="password"
               value={password}
               onChange={(event) =>
-                setPassword(event.target.value)
+                setPassword(
+                  event.target.value
+                )
               }
               placeholder="Create a password"
               autoComplete="new-password"
@@ -500,7 +654,9 @@ export default function Register() {
               type="password"
               value={confirmPassword}
               onChange={(event) =>
-                setConfirmPassword(event.target.value)
+                setConfirmPassword(
+                  event.target.value
+                )
               }
               placeholder="Confirm your password"
               autoComplete="new-password"
@@ -535,7 +691,9 @@ export default function Register() {
                 setReferrerInfo(null);
               }}
               onBlur={() => {
-                if (referralCode.trim()) {
+                if (
+                  referralCode.trim()
+                ) {
                   validateReferralCode();
                 }
               }}
@@ -595,57 +753,63 @@ export default function Register() {
                   opacity: 0.75,
                 }}
               >
-                Please review and accept all five
-                required documents before creating your
-                account.
+                Please review and accept
+                all five required documents
+                before creating your account.
               </p>
             </div>
 
-            {consentItems.map((item) => (
-              <label
-                key={item.key}
-                style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: "10px",
-                  marginBottom: "12px",
-                  cursor: loading
-                    ? "not-allowed"
-                    : "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={
-                    consents[
-                      item.key as keyof ConsentState
-                    ]
-                  }
-                  onChange={() =>
-                    handleConsentChange(
-                      item.key as keyof ConsentState
-                    )
-                  }
-                  disabled={loading}
-                />
+            {consentItems.map(
+              (item) => (
+                <label
+                  key={item.key}
+                  style={{
+                    display: "flex",
+                    alignItems:
+                      "flex-start",
+                    gap: "10px",
+                    marginBottom:
+                      "12px",
+                    cursor: loading
+                      ? "not-allowed"
+                      : "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={
+                      consents[
+                        item.key as keyof ConsentState
+                      ]
+                    }
+                    onChange={() =>
+                      handleConsentChange(
+                        item.key as keyof ConsentState
+                      )
+                    }
+                    disabled={loading}
+                  />
 
-                <span>
-                  <strong>
-                    {item.title}
-                  </strong>
+                  <span>
+                    <strong>
+                      {item.title}
+                    </strong>
 
-                  <small
-                    style={{
-                      display: "block",
-                      marginTop: "3px",
-                      opacity: 0.75,
-                    }}
-                  >
-                    {item.text}
-                  </small>
-                </span>
-              </label>
-            ))}
+                    <small
+                      style={{
+                        display:
+                          "block",
+                        marginTop:
+                          "3px",
+                        opacity: 0.75,
+                      }}
+                    >
+                      {item.text}
+                    </small>
+                  </span>
+                </label>
+              )
+            )}
           </div>
 
           <button
@@ -670,8 +834,8 @@ export default function Register() {
                 opacity: 0.7,
               }}
             >
-              Please review and accept all required
-              documents to continue.
+              Please review and accept all
+              required documents to continue.
             </p>
           )}
         </form>
