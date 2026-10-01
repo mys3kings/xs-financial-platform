@@ -5,6 +5,7 @@ import {
   orderBy,
   query,
   doc,
+  setDoc,
   updateDoc,
   serverTimestamp,
 } from "firebase/firestore";
@@ -44,7 +45,7 @@ export default function Admin() {
   const [error, setError] = useState("");
 
   // ----------------------------------
-  // ADMIN PASSWORD
+  // ADMIN LOGIN
   // ----------------------------------
 
   function handleAdminLogin(
@@ -79,16 +80,18 @@ export default function Admin() {
 
       const snapshot = await getDocs(depositsQuery);
 
-      const depositList: Deposit[] = snapshot.docs.map(
-        (depositDoc) => ({
+      const depositList: Deposit[] =
+        snapshot.docs.map((depositDoc) => ({
           id: depositDoc.id,
           ...(depositDoc.data() as Omit<Deposit, "id">),
-        })
-      );
+        }));
 
       setDeposits(depositList);
     } catch (err) {
-      console.error("Admin deposit loading error:", err);
+      console.error(
+        "Admin deposit loading error:",
+        err
+      );
 
       setError(
         "Unable to load deposits. Check your Firestore permissions and configuration."
@@ -116,7 +119,10 @@ export default function Admin() {
       return;
     }
 
-    if (!deposit.amount || deposit.amount < MINIMUM_DEPOSIT) {
+    if (
+      !deposit.amount ||
+      deposit.amount < MINIMUM_DEPOSIT
+    ) {
       setError(
         "This deposit does not meet the minimum deposit requirement."
       );
@@ -126,7 +132,9 @@ export default function Admin() {
     const confirmed = window.confirm(
       `Approve this ${formatMoney(
         deposit.amount
-      )} deposit from ${deposit.senderName || "Unknown"}?`
+      )} deposit from ${
+        deposit.senderName || "Unknown"
+      }?`
     );
 
     if (!confirmed) return;
@@ -136,34 +144,53 @@ export default function Admin() {
       setError("");
       setMessage("");
 
+      // ----------------------------------
+      // CREATE / ACTIVATE INVESTMENT
+      // ----------------------------------
+
       const investmentRef = doc(
         db,
         "investments",
         deposit.userId
       );
 
-      // Create/activate the investment.
-      await updateDoc(investmentRef, {
-        status: "ACTIVE",
+      await setDoc(
+        investmentRef,
+        {
+          status: "ACTIVE",
 
-        investmentAmount: deposit.amount,
+          investmentAmount: deposit.amount,
 
-        principalAmount: deposit.amount,
+          principalAmount: deposit.amount,
 
-        dailyReturn: DAILY_RETURN,
+          dailyReturn: DAILY_RETURN,
 
-        totalReturns: DAILY_RETURN * CYCLE_DAYS,
+          totalReturns:
+            DAILY_RETURN * CYCLE_DAYS,
 
-        cycleDays: CYCLE_DAYS,
+          cycleDays: CYCLE_DAYS,
 
-        startedAt: serverTimestamp(),
+          startedAt: serverTimestamp(),
 
-        nextReturnAt: serverTimestamp(),
+          nextReturnAt: serverTimestamp(),
 
-        updatedAt: serverTimestamp(),
-      });
+          depositId: deposit.id,
 
-      // Mark the deposit as approved.
+          userId: deposit.userId,
+
+          currency: "NGN",
+
+          updatedAt: serverTimestamp(),
+        },
+        {
+          merge: true,
+        }
+      );
+
+      // ----------------------------------
+      // MARK DEPOSIT APPROVED
+      // ----------------------------------
+
       const depositRef = doc(
         db,
         "deposits",
@@ -172,6 +199,7 @@ export default function Admin() {
 
       await updateDoc(depositRef, {
         status: "approved",
+
         approvedAt: serverTimestamp(),
 
         approvedBy: "admin",
@@ -189,7 +217,7 @@ export default function Admin() {
       );
 
       setError(
-        "The deposit could not be approved. Make sure the investment document and Firestore permissions are configured correctly."
+        "The deposit could not be approved. Check your Firestore permissions and try again."
       );
     } finally {
       setProcessingId("");
@@ -222,6 +250,7 @@ export default function Admin() {
 
       await updateDoc(depositRef, {
         status: "rejected",
+
         rejectedAt: serverTimestamp(),
 
         rejectedBy: "admin",
@@ -247,7 +276,7 @@ export default function Admin() {
   }
 
   // ----------------------------------
-  // LOGOUT
+  // ADMIN LOGOUT
   // ----------------------------------
 
   async function handleLogout() {
@@ -307,7 +336,7 @@ export default function Admin() {
   }
 
   // ----------------------------------
-  // PASSWORD SCREEN
+  // ADMIN PASSWORD SCREEN
   // ----------------------------------
 
   if (!authenticated) {
@@ -385,26 +414,33 @@ export default function Admin() {
   }
 
   // ----------------------------------
-  // ADMIN DASHBOARD
+  // FILTER DEPOSITS
   // ----------------------------------
 
-  const pendingDeposits = deposits.filter(
-    (deposit) =>
-      deposit.status?.toLowerCase() ===
-      "pending"
-  );
+  const pendingDeposits =
+    deposits.filter(
+      (deposit) =>
+        deposit.status?.toLowerCase() ===
+        "pending"
+    );
 
-  const approvedDeposits = deposits.filter(
-    (deposit) =>
-      deposit.status?.toLowerCase() ===
-      "approved"
-  );
+  const approvedDeposits =
+    deposits.filter(
+      (deposit) =>
+        deposit.status?.toLowerCase() ===
+        "approved"
+    );
 
-  const rejectedDeposits = deposits.filter(
-    (deposit) =>
-      deposit.status?.toLowerCase() ===
-      "rejected"
-  );
+  const rejectedDeposits =
+    deposits.filter(
+      (deposit) =>
+        deposit.status?.toLowerCase() ===
+        "rejected"
+    );
+
+  // ----------------------------------
+  // ADMIN DASHBOARD
+  // ----------------------------------
 
   return (
     <main className="admin-page">
@@ -455,7 +491,7 @@ export default function Admin() {
 
       <div className="admin-container">
 
-        {/* HEADER */}
+        {/* ADMIN WELCOME */}
 
         <section className="admin-welcome">
 
@@ -475,7 +511,7 @@ export default function Admin() {
         </section>
 
 
-        {/* STATS */}
+        {/* ADMIN SUMMARY */}
 
         <section className="admin-summary">
 
@@ -520,7 +556,7 @@ export default function Admin() {
         </section>
 
 
-        {/* MESSAGES */}
+        {/* SUCCESS MESSAGE */}
 
         {message && (
           <div
@@ -530,6 +566,9 @@ export default function Admin() {
             {message}
           </div>
         )}
+
+
+        {/* ERROR MESSAGE */}
 
         {error && (
           <div
@@ -620,6 +659,7 @@ export default function Admin() {
                         </strong>
 
                       </div>
+
 
                       <div>
 
@@ -908,4 +948,4 @@ export default function Admin() {
 
     </main>
   );
-    }
+}
