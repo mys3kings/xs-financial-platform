@@ -6,26 +6,19 @@ import Login from "./Login";
 import ForgotPassword from "./ForgotPassword";
 import Dashboard from "./Dashboard";
 import Deposit from "./Deposit";
+import Withdraw from "./Withdraw";
 import ProtectedRoute from "./ProtectedRoute";
 
 export default function AppRoutes() {
   return (
     <Routes>
-      {/* PUBLIC PAGES */}
-
+      {/* PUBLIC ROUTES */}
       <Route path="/" element={<Home />} />
-
       <Route path="/register" element={<Register />} />
-
       <Route path="/login" element={<Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
 
-      <Route
-        path="/forgot-password"
-        element={<ForgotPassword />}
-      />
-
-      {/* PROTECTED USER PAGES */}
-
+      {/* PROTECTED USER ROUTES */}
       <Route
         path="/dashboard"
         element={
@@ -44,9 +37,17 @@ export default function AppRoutes() {
         }
       />
 
-      {/* FALLBACK */}
+      <Route
+        path="/withdraw"
+        element={
+          <ProtectedRoute>
+            <Withdraw />
+          </ProtectedRoute>
+        }
+      />
 
+      {/* FALLBACK */}
       <Route path="*" element={<Home />} />
     </Routes>
   );
-}
+        }
