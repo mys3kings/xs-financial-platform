@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import { sendPasswordResetEmail } from "firebase/auth";
+
 import { auth } from "./firebase";
 
 function getResetErrorMessage(code: string) {
@@ -25,7 +26,9 @@ export default function ForgotPassword() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
     setError("");
@@ -41,14 +44,24 @@ export default function ForgotPassword() {
     try {
       setLoading(true);
 
-      await sendPasswordResetEmail(auth, cleanEmail);
+      await sendPasswordResetEmail(
+        auth,
+        cleanEmail
+      );
 
       setSuccess(true);
       setEmail("");
     } catch (err: any) {
-      console.error("PASSWORD RESET ERROR:", err);
+      console.error(
+        "PASSWORD RESET ERROR:",
+        err
+      );
 
-      setError(getResetErrorMessage(err?.code || ""));
+      setError(
+        getResetErrorMessage(
+          err?.code || ""
+        )
+      );
     } finally {
       setLoading(false);
     }
@@ -63,13 +76,16 @@ export default function ForgotPassword() {
         </Link>
 
         <div className="auth-heading">
-          <p className="eyebrow">XS COMPANY LIMITED</p>
+          <p className="eyebrow">
+            XS COMPANY LIMITED
+          </p>
 
           <h1>Reset your password</h1>
 
           <p>
-            Enter the email address connected to your XS
-            account and we'll send you a password reset link.
+            Enter the email address connected to your
+            XS account and we'll send you a password
+            reset link.
           </p>
         </div>
 
@@ -78,9 +94,9 @@ export default function ForgotPassword() {
             className="auth-success"
             role="status"
           >
-            Password reset email sent. Check your email
-            inbox and follow the instructions to create a
-            new password.
+            Password reset email sent. Check your
+            email inbox and follow the instructions
+            to create a new password.
           </div>
         )}
 
@@ -128,7 +144,9 @@ export default function ForgotPassword() {
 
         <p className="auth-footer">
           Remember your password?{" "}
-          <Link to="/login">Back to Login</Link>
+          <Link to="/login">
+            Back to Login
+          </Link>
         </p>
 
         <p className="auth-footer">
@@ -139,4 +157,4 @@ export default function ForgotPassword() {
       </div>
     </main>
   );
-                              }
+}
