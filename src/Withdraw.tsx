@@ -99,12 +99,27 @@ export default function Withdraw() {
   const [submittedAmount, setSubmittedAmount] =
     useState(0);
 
+  // --------------------------------------------------
+  // WITHDRAWAL PORTAL LOCK
+  // --------------------------------------------------
+
+  const [withdrawalPortalLocked, setWithdrawalPortalLocked] =
+    useState(false);
+
+  const [portalLoading, setPortalLoading] =
+    useState(true);
+
+  // --------------------------------------------------
+  // LOAD USER + WITHDRAWAL PORTAL STATUS
+  // --------------------------------------------------
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(
       auth,
       async (user) => {
         if (!user) {
           setLoading(false);
+          setPortalLoading(false);
 
           navigate("/login", {
             replace: true,
@@ -116,6 +131,10 @@ export default function Withdraw() {
         setUserId(user.uid);
 
         try {
+          // ------------------------------------------
+          // LOAD USER PROFILE
+          // ------------------------------------------
+
           const userRef = doc(
             db,
             "users",
@@ -159,9 +178,35 @@ export default function Withdraw() {
 
             setAvailableBalance(0);
           }
+
+          // ------------------------------------------
+          // LOAD WITHDRAWAL PORTAL STATUS
+          // ------------------------------------------
+
+          const settingsRef = doc(
+            db,
+            "settings",
+            "withdrawalPortal",
+          );
+
+          const settingsSnapshot =
+            await getDoc(settingsRef);
+
+          if (settingsSnapshot.exists()) {
+            const settingsData =
+              settingsSnapshot.data();
+
+            setWithdrawalPortalLocked(
+              settingsData.locked === true,
+            );
+          } else {
+            // If the setting doesn't exist,
+            // withdrawals remain open.
+            setWithdrawalPortalLocked(false);
+          }
         } catch (err) {
           console.error(
-            "WITHDRAW PROFILE ERROR:",
+            "WITHDRAW PAGE LOAD ERROR:",
             err,
           );
 
@@ -176,11 +221,14 @@ export default function Withdraw() {
 
           setAvailableBalance(0);
 
+          setWithdrawalPortalLocked(false);
+
           setError(
-            "We could not load your current account balance. Please refresh the page and try again.",
+            "We could not load your withdrawal account. Please refresh the page and try again.",
           );
         } finally {
           setLoading(false);
+          setPortalLoading(false);
         }
       },
     );
@@ -194,14 +242,29 @@ export default function Withdraw() {
     Number.isFinite(numericAmount) &&
     numericAmount >= MINIMUM_WITHDRAWAL;
 
+  // --------------------------------------------------
+  // SUBMIT WITHDRAWAL
+  // --------------------------------------------------
+
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>,
   ) {
     event.preventDefault();
 
     setError("");
-
     setSuccess(false);
+
+    // ------------------------------------------
+    // PORTAL LOCK CHECK
+    // ------------------------------------------
+
+    if (withdrawalPortalLocked) {
+      setError(
+        "The withdrawal portal is currently locked or unavailable. Please try again later.",
+      );
+
+      return;
+    }
 
     if (!userId) {
       setError(
@@ -301,14 +364,39 @@ export default function Withdraw() {
     try {
       setSubmitting(true);
 
-      /*
-       * Check whether the user already has
-       * a pending withdrawal.
-       *
-       * This is a client-side UX check.
-       * Final enforcement will also be handled
-       * through Firestore security/server logic.
-       */
+      // ------------------------------------------
+      // CHECK PORTAL STATUS AGAIN
+      // ------------------------------------------
+      // This prevents the user from submitting
+      // if the admin locked the portal after
+      // the page was first opened.
+
+      const settingsRef = doc(
+        db,
+        "settings",
+        "withdrawalPortal",
+      );
+
+      const settingsSnapshot =
+        await getDoc(settingsRef);
+
+      const currentlyLocked =
+        settingsSnapshot.exists() &&
+        settingsSnapshot.data().locked === true;
+
+      if (currentlyLocked) {
+        setWithdrawalPortalLocked(true);
+
+        setError(
+          "The withdrawal portal has been locked by XS Company Limited. New withdrawal requests cannot be submitted at this time.",
+        );
+
+        return;
+      }
+
+      // ------------------------------------------
+      // CHECK EXISTING PENDING WITHDRAWAL
+      // ------------------------------------------
 
       const pendingQuery = query(
         collection(db, "withdrawals"),
@@ -342,6 +430,10 @@ export default function Withdraw() {
 
         return;
       }
+
+      // ------------------------------------------
+      // CREATE WITHDRAWAL REQUEST
+      // ------------------------------------------
 
       const withdrawalReference =
         generateWithdrawalReference();
@@ -437,7 +529,14 @@ export default function Withdraw() {
     }
   }
 
-  if (loading) {
+  // --------------------------------------------------
+  // LOADING SCREEN
+  // --------------------------------------------------
+
+  if (
+    loading ||
+    portalLoading
+  ) {
     return (
       <main className="withdraw-page">
         <div className="withdraw-loading">
@@ -450,6 +549,106 @@ export default function Withdraw() {
       </main>
     );
   }
+
+  // --------------------------------------------------
+  // WITHDRAWAL PORTAL LOCKED
+  // --------------------------------------------------
+
+  if (withdrawalPortalLocked) {
+    return (
+      <main className="withdraw-page">
+        <header className="withdraw-navbar">
+          <Link
+            to="/dashboard"
+            className="dashboard-brand"
+          >
+            <span className="brand-x">
+              X
+            </span>
+
+            <span className="brand-s">
+              S
+            </span>
+
+            <span className="brand-name">
+              Company Limited
+            </span>
+          </Link>
+
+          <Link
+            to="/dashboard"
+            className="withdraw-back-link"
+          >
+            ← Dashboard
+          </Link>
+        </header>
+
+        <div className="withdraw-container">
+          <section className="withdraw-locked-card">
+
+            <div className="withdraw-locked-icon">
+              🔒
+            </div>
+
+            <p className="dashboard-eyebrow">
+              WITHDRAWALS
+            </p>
+
+            <h1>
+              Withdrawal portal unavailable
+            </h1>
+
+            <p>
+              The withdrawal portal is
+              currently locked by XS Company
+              Limited.
+            </p>
+
+            <p>
+              New withdrawal requests cannot
+              be submitted at this time.
+              Please check again later.
+            </p>
+
+            <div className="withdraw-locked-status">
+              <strong>
+                🔒 Withdrawals temporarily unavailable
+              </strong>
+
+              <span>
+                The portal will become available
+                again when it is unlocked.
+              </span>
+            </div>
+
+            <Link
+              to="/dashboard"
+              className="primary-button"
+            >
+              ← Back to Dashboard
+            </Link>
+
+          </section>
+
+          <footer className="dashboard-footer">
+            <strong>
+              XS Company Limited
+            </strong>
+
+            <span>
+              ©{" "}
+              {new Date().getFullYear()}{" "}
+              All rights reserved.
+            </span>
+          </footer>
+        </div>
+      </main>
+    );
+  }
+
+  // --------------------------------------------------
+  // SUCCESS SCREEN
+  // --------------------------------------------------
 
   if (success) {
     return (
@@ -563,6 +762,10 @@ export default function Withdraw() {
       </main>
     );
   }
+
+  // --------------------------------------------------
+  // NORMAL WITHDRAWAL PAGE
+  // --------------------------------------------------
 
   return (
     <main className="withdraw-page">
@@ -687,7 +890,7 @@ export default function Withdraw() {
                     );
 
                     setError("");
-                  }}
+                              }}
                   placeholder="500"
                   disabled={
                     submitting
@@ -901,4 +1104,4 @@ export default function Withdraw() {
       </div>
     </main>
   );
-}
+                }
