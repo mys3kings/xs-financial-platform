@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  signInWithEmailAndPassword,
   onAuthStateChanged,
+  signInWithEmailAndPassword,
 } from "firebase/auth";
+
 import { auth } from "./firebase";
 
 function getLoginErrorMessage(code: string) {
@@ -40,7 +41,6 @@ export default function Login() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [error, setError] = useState("");
 
-  // If the user is already signed in, send them to the dashboard.
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
@@ -83,9 +83,9 @@ export default function Login() {
     } catch (err: any) {
       console.error("LOGIN ERROR:", err);
 
-      const code = err?.code || "";
-
-      setError(getLoginErrorMessage(code));
+      setError(
+        getLoginErrorMessage(err?.code || "")
+      );
     } finally {
       setLoading(false);
     }
@@ -95,14 +95,16 @@ export default function Login() {
     return (
       <main className="auth-page">
         <div className="auth-card">
-          <div className="auth-brand">
+          <Link to="/" className="auth-brand">
             <span className="brand-x">X</span>
             <span className="brand-s">S</span>
-          </div>
+          </Link>
 
           <div className="auth-heading">
-            <p className="eyebrow">XS Company Limited</p>
+            <p className="eyebrow">XS COMPANY LIMITED</p>
+
             <h1>Checking account...</h1>
+
             <p>Please wait.</p>
           </div>
         </div>
@@ -130,15 +132,15 @@ export default function Login() {
         </div>
 
         {error && (
-          <div
-            className="auth-error"
-            role="alert"
-          >
+          <div className="auth-error" role="alert">
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="auth-form">
+        <form
+          onSubmit={handleSubmit}
+          className="auth-form"
+        >
           <div className="form-group">
             <label htmlFor="email">
               Email Address
@@ -148,7 +150,9 @@ export default function Login() {
               id="email"
               type="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) =>
+                setEmail(event.target.value)
+              }
               placeholder="Enter your email address"
               autoComplete="email"
               disabled={loading}
@@ -161,17 +165,12 @@ export default function Login() {
                 Password
               </label>
 
-              <button
-                type="button"
+              <Link
+                to="/forgot-password"
                 className="forgot-password"
-                onClick={() =>
-                  setError(
-                    "Password reset will be connected next."
-                  )
-                }
               >
                 Forgot password?
-              </button>
+              </Link>
             </div>
 
             <input
@@ -211,4 +210,4 @@ export default function Login() {
       </div>
     </main>
   );
-  }
+}
