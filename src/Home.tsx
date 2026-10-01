@@ -316,12 +316,17 @@ function HomePage() {
 
               <div>
                 <span>Daily return</span>
-                <strong>₦150</strong>
+                <strong>₦200</strong>
               </div>
 
               <div>
                 <span>Cycle duration</span>
                 <strong>3 Days</strong>
+              </div>
+
+              <div>
+                <span>Total stated return</span>
+                <strong>₦600</strong>
               </div>
 
               <div>
@@ -334,10 +339,12 @@ function HomePage() {
               <Clock3 size={18} />
 
               <p>
-                When the 3-day cycle expires, a new cycle
-                requires a new deposit. Withdrawal eligibility
-                also requires 2 qualified referrals for the
-                current cycle.
+                The 3-day cycle provides a stated daily return
+                of ₦200, for a stated total of ₦600 across the
+                three daily returns. When the cycle expires, a
+                new cycle requires a new deposit. Withdrawal
+                eligibility also requires 2 qualified referrals
+                for the current cycle.
               </p>
             </div>
 
