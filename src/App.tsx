@@ -10,6 +10,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+
 import {
   BrowserRouter,
   Link,
@@ -19,6 +20,7 @@ import {
 } from "react-router-dom";
 
 import Register from "./Register";
+import Login from "./Login";
 import Dashboard from "./Dashboard";
 import Deposit from "./Deposit";
 
@@ -59,28 +61,48 @@ function HomePage() {
             <span className="brand-name">Company Limited</span>
           </a>
 
-          <nav className={`desktop-nav ${menuOpen ? "mobile-open" : ""}`}>
-            <a href="#home" onClick={() => setMenuOpen(false)}>
+          <nav
+            className={`desktop-nav ${menuOpen ? "mobile-open" : ""}`}
+          >
+            <a
+              href="#home"
+              onClick={() => setMenuOpen(false)}
+            >
               Home
             </a>
 
-            <a href="#about" onClick={() => setMenuOpen(false)}>
+            <a
+              href="#about"
+              onClick={() => setMenuOpen(false)}
+            >
               About
             </a>
 
-            <a href="#how-it-works" onClick={() => setMenuOpen(false)}>
+            <a
+              href="#how-it-works"
+              onClick={() => setMenuOpen(false)}
+            >
               How It Works
             </a>
 
-            <a href="#plans" onClick={() => setMenuOpen(false)}>
+            <a
+              href="#plans"
+              onClick={() => setMenuOpen(false)}
+            >
               Plans
             </a>
 
-            <a href="#referral" onClick={() => setMenuOpen(false)}>
+            <a
+              href="#referral"
+              onClick={() => setMenuOpen(false)}
+            >
               Referral
             </a>
 
-            <a href="#faq" onClick={() => setMenuOpen(false)}>
+            <a
+              href="#faq"
+              onClick={() => setMenuOpen(false)}
+            >
               FAQ
             </a>
           </nav>
@@ -106,7 +128,11 @@ function HomePage() {
             onClick={() => setMenuOpen(!menuOpen)}
             aria-label="Toggle navigation"
           >
-            {menuOpen ? <X size={24} /> : <Menu size={24} />}
+            {menuOpen ? (
+              <X size={24} />
+            ) : (
+              <Menu size={24} />
+            )}
           </button>
         </div>
       </header>
@@ -127,8 +153,9 @@ function HomePage() {
             </h1>
 
             <p>
-              A simple platform designed to help you manage your investment,
-              track returns, and participate in the XS referral programme.
+              A simple platform designed to help you manage
+              your investment, track returns, and participate in
+              the XS referral programme.
             </p>
 
             <div className="hero-buttons">
@@ -166,12 +193,15 @@ function HomePage() {
           <div className="section-heading">
             <span className="eyebrow">ABOUT XS</span>
 
-            <h2>A simple way to manage your investment.</h2>
+            <h2>
+              A simple way to manage your investment.
+            </h2>
 
             <p>
-              XS Company Limited provides a structured digital platform where
-              registered users can manage their investment activity, returns,
-              withdrawals and referrals in one place.
+              XS Company Limited provides a structured digital
+              platform where registered users can manage their
+              investment activity, returns, withdrawals and
+              referrals in one place.
             </p>
           </div>
 
@@ -196,7 +226,10 @@ function HomePage() {
           </div>
         </section>
 
-        <section id="how-it-works" className="section section-dark">
+        <section
+          id="how-it-works"
+          className="section section-dark"
+        >
           <div className="section-heading light">
             <span className="eyebrow">HOW IT WORKS</span>
 
@@ -204,10 +237,297 @@ function HomePage() {
           </div>
 
           <div className="steps-grid">
-            <Step number="01" title="Create an account">
-              Register and complete the required consent and account
-              information.
+            <Step
+              number="01"
+              title="Create an account"
+            >
+              Register and complete the required consent and
+              account information.
             </Step>
 
-            <Step number="02" title="Make a deposit">
-              Deposit at
+            <Step
+              number="02"
+              title="Make a deposit"
+            >
+              Deposit at least ₦500 and provide the sender
+              account name used for the transfer.
+            </Step>
+
+            <Step
+              number="03"
+              title="Investment activated"
+            >
+              Your deposit remains pending until an
+              administrator verifies and approves it.
+            </Step>
+
+            <Step
+              number="04"
+              title="Manage your cycle"
+            >
+              Track your active investment, daily return and
+              3-day investment cycle from your dashboard.
+            </Step>
+          </div>
+        </section>
+
+        <section id="plans" className="section">
+          <div className="section-heading">
+            <span className="eyebrow">INVESTMENT</span>
+
+            <h2>XS investment cycle</h2>
+
+            <p>
+              Review the investment terms carefully before
+              participating. Returns are subject to the
+              applicable terms and platform conditions.
+            </p>
+          </div>
+
+          <div className="plan-card">
+            <div className="plan-top">
+              <div>
+                <span className="plan-label">
+                  STANDARD CYCLE
+                </span>
+
+                <h3>XS Investment</h3>
+              </div>
+
+              <div className="plan-icon">
+                <Clock3 size={26} />
+              </div>
+            </div>
+
+            <div className="plan-details">
+              <div>
+                <span>Minimum deposit</span>
+                <strong>₦500</strong>
+              </div>
+
+              <div>
+                <span>Daily return</span>
+                <strong>₦150</strong>
+              </div>
+
+              <div>
+                <span>Cycle duration</span>
+                <strong>3 Days</strong>
+              </div>
+
+              <div>
+                <span>Minimum withdrawal</span>
+                <strong>₦500</strong>
+              </div>
+            </div>
+
+            <div className="plan-note">
+              <Clock3 size={18} />
+
+              <p>
+                When the 3-day cycle expires, a new cycle
+                requires a new deposit. Withdrawal eligibility
+                also requires 2 qualified referrals for the
+                current cycle.
+              </p>
+            </div>
+
+            <button
+              className="btn btn-primary btn-full"
+              onClick={() => navigate("/register")}
+            >
+              Get Started
+              <ArrowRight size={18} />
+            </button>
+          </div>
+        </section>
+
+        <section
+          id="referral"
+          className="section referral-section"
+        >
+          <div className="referral-content">
+            <div>
+              <span className="eyebrow">
+                REFERRAL PROGRAMME
+              </span>
+
+              <h2>Share XS with people you know.</h2>
+
+              <p>
+                Every user receives a unique referral code and
+                link. A referral becomes qualified after the
+                referred user registers, deposits at least
+                ₦500 and has the deposit approved.
+              </p>
+
+              <div className="commission">
+                <Users size={25} />
+
+                <div>
+                  <strong>₦50</strong>
+                  <span>per qualified referral</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="referral-card">
+              <Users size={38} />
+
+              <h3>Build your referral network</h3>
+
+              <p>
+                Track total referrals, qualified referrals and
+                referral commissions directly from your
+                account.
+              </p>
+
+              <button
+                className="btn btn-primary"
+                onClick={() => navigate("/register")}
+              >
+                Join XS
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section id="faq" className="section">
+          <div className="section-heading">
+            <span className="eyebrow">FAQ</span>
+
+            <h2>Frequently asked questions.</h2>
+          </div>
+
+          <div className="faq-list">
+            {faqs.map((faq, index) => (
+              <div
+                className="faq-item"
+                key={faq.question}
+              >
+                <button
+                  className="faq-question"
+                  onClick={() =>
+                    setOpenFaq(
+                      openFaq === index ? null : index
+                    )
+                  }
+                >
+                  <span>{faq.question}</span>
+
+                  <ChevronDown
+                    size={20}
+                    className={
+                      openFaq === index ? "rotate" : ""
+                    }
+                  />
+                </button>
+
+                {openFaq === index && (
+                  <div className="faq-answer">
+                    {faq.answer}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      </main>
+
+      <footer className="footer">
+        <div>
+          <div className="brand footer-brand">
+            <span className="brand-xs">X</span>
+            <span className="brand-s">S</span>
+            <span className="brand-name">
+              Company Limited
+            </span>
+          </div>
+
+          <p>
+            Professional digital platform for managing your XS
+            investment activity.
+          </p>
+        </div>
+
+        <div className="footer-links">
+          <a href="#about">About</a>
+          <a href="#plans">Investment Terms</a>
+          <a href="#referral">Referral Terms</a>
+          <a href="#faq">FAQ</a>
+        </div>
+
+        <div className="copyright">
+          © {new Date().getFullYear()} XS Company Limited.
+          All rights reserved.
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function FeatureCard({
+  icon,
+  title,
+  text,
+}: {
+  icon: ReactNode;
+  title: string;
+  text: string;
+}) {
+  return (
+    <div className="feature-card">
+      <div className="feature-icon">{icon}</div>
+
+      <h3>{title}</h3>
+
+      <p>{text}</p>
+    </div>
+  );
+}
+
+function Step({
+  number,
+  title,
+  children,
+}: {
+  number: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="step">
+      <span className="step-number">{number}</span>
+
+      <h3>{title}</h3>
+
+      <p>{children}</p>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* Public website */}
+        <Route path="/" element={<HomePage />} />
+
+        {/* Authentication */}
+        <Route path="/register" element={<Register />} />
+        <Route path="/login" element={<Login />} />
+
+        {/* User dashboard */}
+        <Route path="/dashboard" element={<Dashboard />} />
+
+        {/* User deposit */}
+        <Route path="/deposit" element={<Deposit />} />
+
+        {/* Fallback */}
+        <Route path="*" element={<HomePage />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default App;
