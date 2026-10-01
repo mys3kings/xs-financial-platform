@@ -18,6 +18,63 @@ const ADMIN_PASSWORD = "2007";
 const MINIMUM_DEPOSIT = 500;
 const DAILY_RETURN = 200;
 const CYCLE_DAYS = 3;
+const CYCLE_TOTAL_RETURN = DAILY_RETURN * CYCLE_DAYS;
+
+// --------------------------------------------------
+// GET CURRENT NIGERIAN TIME
+// --------------------------------------------------
+
+function getNigeriaNow(): Date {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+
+  const values: Record<string, string> = {};
+
+  parts.forEach((part) => {
+    if (part.type !== "literal") {
+      values[part.type] = part.value;
+    }
+  });
+
+  return new Date(
+    Date.UTC(
+      Number(values.year),
+      Number(values.month) - 1,
+      Number(values.day),
+      Number(values.hour),
+      Number(values.minute),
+      Number(values.second)
+    )
+  );
+}
+
+// --------------------------------------------------
+// GET NEXT 12:00 AM NIGERIAN TIME
+// --------------------------------------------------
+
+function getNextNigeriaMidnight(): Date {
+  const nigeriaNow = getNigeriaNow();
+
+  nigeriaNow.setUTCDate(
+    nigeriaNow.getUTCDate() + 1
+  );
+
+  nigeriaNow.setUTCHours(0, 0, 0, 0);
+
+  return nigeriaNow;
+}
+
+// --------------------------------------------------
+// DEPOSIT TYPE
+// --------------------------------------------------
 
 type Deposit = {
   id: string;
@@ -28,25 +85,43 @@ type Deposit = {
   status?: string;
   type?: string;
   createdAt?: any;
+  approvedAt?: any;
+  rejectedAt?: any;
 };
+
+// --------------------------------------------------
+// ADMIN COMPONENT
+// --------------------------------------------------
 
 export default function Admin() {
   const navigate = useNavigate();
 
-  const [authenticated, setAuthenticated] = useState(false);
+  const [authenticated, setAuthenticated] =
+    useState(false);
+
   const [password, setPassword] = useState("");
-  const [passwordError, setPasswordError] = useState("");
 
-  const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [processingId, setProcessingId] = useState("");
+  const [passwordError, setPasswordError] =
+    useState("");
 
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [deposits, setDeposits] =
+    useState<Deposit[]>([]);
 
-  // ----------------------------------
+  const [loading, setLoading] =
+    useState(false);
+
+  const [processingId, setProcessingId] =
+    useState("");
+
+  const [message, setMessage] =
+    useState("");
+
+  const [error, setError] =
+    useState("");
+
+  // --------------------------------------------------
   // ADMIN LOGIN
-  // ----------------------------------
+  // --------------------------------------------------
 
   function handleAdminLogin(
     event: React.FormEvent<HTMLFormElement>
@@ -61,12 +136,14 @@ export default function Admin() {
       return;
     }
 
-    setPasswordError("Incorrect admin password.");
+    setPasswordError(
+      "Incorrect admin password."
+    );
   }
 
-  // ----------------------------------
+  // --------------------------------------------------
   // LOAD DEPOSITS
-  // ----------------------------------
+  // --------------------------------------------------
 
   async function loadDeposits() {
     try {
@@ -78,12 +155,16 @@ export default function Admin() {
         orderBy("createdAt", "desc")
       );
 
-      const snapshot = await getDocs(depositsQuery);
+      const snapshot =
+        await getDocs(depositsQuery);
 
       const depositList: Deposit[] =
         snapshot.docs.map((depositDoc) => ({
           id: depositDoc.id,
-          ...(depositDoc.data() as Omit<Deposit, "id">),
+          ...(depositDoc.data() as Omit<
+            Deposit,
+            "id"
+          >),
         }));
 
       setDeposits(depositList);
@@ -107,11 +188,14 @@ export default function Admin() {
     loadDeposits();
   }, [authenticated]);
 
-  // ----------------------------------
+  // --------------------------------------------------
   // APPROVE DEPOSIT
-  // ----------------------------------
+  // --------------------------------------------------
 
-  async function approveDeposit(deposit: Deposit) {
+  async function approveDeposit(
+    deposit: Deposit
+  ) {
+    // Validate user ID
     if (!deposit.userId) {
       setError(
         "This deposit does not have a valid user ID."
@@ -119,12 +203,38 @@ export default function Admin() {
       return;
     }
 
+    // Validate amount
     if (
-      !deposit.amount ||
+      typeof deposit.amount !== "number" ||
+      !Number.isFinite(deposit.amount) ||
       deposit.amount < MINIMUM_DEPOSIT
     ) {
       setError(
-        "This deposit does not meet the minimum deposit requirement."
+        `This deposit does not meet the minimum deposit requirement of ₦${MINIMUM_DEPOSIT.toLocaleString(
+          "en-NG"
+        )}.`
+      );
+      return;
+    }
+
+    // Prevent duplicate approval
+    if (
+      deposit.status?.toLowerCase() ===
+      "approved"
+    ) {
+      setError(
+        "This deposit has already been approved."
+      );
+      return;
+    }
+
+    // Prevent approving rejected request
+    if (
+      deposit.status?.toLowerCase() ===
+      "rejected"
+    ) {
+      setError(
+        "A rejected deposit cannot be approved."
       );
       return;
     }
@@ -144,9 +254,16 @@ export default function Admin() {
       setError("");
       setMessage("");
 
-      // ----------------------------------
+      // ------------------------------------------------
+      // CALCULATE NEXT NIGERIAN MIDNIGHT
+      // ------------------------------------------------
+
+      const nextNigeriaMidnight =
+        getNextNigeriaMidnight();
+
+      // ------------------------------------------------
       // CREATE / ACTIVATE INVESTMENT
-      // ----------------------------------
+      // ------------------------------------------------
 
       const investmentRef = doc(
         db,
@@ -159,37 +276,49 @@ export default function Admin() {
         {
           status: "ACTIVE",
 
-          investmentAmount: deposit.amount,
+          investmentAmount:
+            deposit.amount,
 
-          principalAmount: deposit.amount,
+          principalAmount:
+            deposit.amount,
 
-          dailyReturn: DAILY_RETURN,
+          dailyReturn:
+            DAILY_RETURN,
 
           totalReturns:
-            DAILY_RETURN * CYCLE_DAYS,
+            CYCLE_TOTAL_RETURN,
 
-          cycleDays: CYCLE_DAYS,
+          cycleDays:
+            CYCLE_DAYS,
 
-          startedAt: serverTimestamp(),
+          startedAt:
+            serverTimestamp(),
 
-          nextReturnAt: serverTimestamp(),
+          // Next return is the next
+          // 12:00 AM Nigerian time.
+          nextReturnAt:
+            nextNigeriaMidnight,
 
-          depositId: deposit.id,
+          depositId:
+            deposit.id,
 
-          userId: deposit.userId,
+          userId:
+            deposit.userId,
 
-          currency: "NGN",
+          currency:
+            "NGN",
 
-          updatedAt: serverTimestamp(),
+          updatedAt:
+            serverTimestamp(),
         },
         {
           merge: true,
         }
       );
 
-      // ----------------------------------
+      // ------------------------------------------------
       // MARK DEPOSIT APPROVED
-      // ----------------------------------
+      // ------------------------------------------------
 
       const depositRef = doc(
         db,
@@ -197,13 +326,18 @@ export default function Admin() {
         deposit.id
       );
 
-      await updateDoc(depositRef, {
-        status: "approved",
+      await updateDoc(
+        depositRef,
+        {
+          status: "approved",
 
-        approvedAt: serverTimestamp(),
+          approvedAt:
+            serverTimestamp(),
 
-        approvedBy: "admin",
-      });
+          approvedBy:
+            "admin",
+        }
+      );
 
       setMessage(
         "Deposit approved and investment activated successfully."
@@ -224,11 +358,35 @@ export default function Admin() {
     }
   }
 
-  // ----------------------------------
+  // --------------------------------------------------
   // REJECT DEPOSIT
-  // ----------------------------------
+  // --------------------------------------------------
 
-  async function rejectDeposit(deposit: Deposit) {
+  async function rejectDeposit(
+    deposit: Deposit
+  ) {
+    // Prevent rejecting approved request
+    if (
+      deposit.status?.toLowerCase() ===
+      "approved"
+    ) {
+      setError(
+        "An approved deposit cannot be rejected from this section."
+      );
+      return;
+    }
+
+    // Prevent duplicate rejection
+    if (
+      deposit.status?.toLowerCase() ===
+      "rejected"
+    ) {
+      setError(
+        "This deposit has already been rejected."
+      );
+      return;
+    }
+
     const confirmed = window.confirm(
       `Reject this deposit request from ${
         deposit.senderName || "Unknown"
@@ -248,13 +406,18 @@ export default function Admin() {
         deposit.id
       );
 
-      await updateDoc(depositRef, {
-        status: "rejected",
+      await updateDoc(
+        depositRef,
+        {
+          status: "rejected",
 
-        rejectedAt: serverTimestamp(),
+          rejectedAt:
+            serverTimestamp(),
 
-        rejectedBy: "admin",
-      });
+          rejectedBy:
+            "admin",
+        }
+      );
 
       setMessage(
         "Deposit request rejected."
@@ -275,9 +438,9 @@ export default function Admin() {
     }
   }
 
-  // ----------------------------------
+  // --------------------------------------------------
   // ADMIN LOGOUT
-  // ----------------------------------
+  // --------------------------------------------------
 
   async function handleLogout() {
     try {
@@ -294,20 +457,23 @@ export default function Admin() {
     }
   }
 
-  // ----------------------------------
+  // --------------------------------------------------
   // FORMAT MONEY
-  // ----------------------------------
+  // --------------------------------------------------
 
   function formatMoney(amount: number) {
-    return `₦${amount.toLocaleString("en-NG", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
+    return `₦${amount.toLocaleString(
+      "en-NG",
+      {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }
+    )}`;
   }
 
-  // ----------------------------------
+  // --------------------------------------------------
   // FORMAT DATE
-  // ----------------------------------
+  // --------------------------------------------------
 
   function formatDate(value: any) {
     if (!value) return "—";
@@ -335,16 +501,14 @@ export default function Admin() {
     }
   }
 
-  // ----------------------------------
+  // --------------------------------------------------
   // ADMIN PASSWORD SCREEN
-  // ----------------------------------
+  // --------------------------------------------------
 
   if (!authenticated) {
     return (
       <main className="admin-page">
-
         <div className="admin-login-card">
-
           <div className="admin-logo">
             X
           </div>
@@ -366,7 +530,6 @@ export default function Admin() {
             onSubmit={handleAdminLogin}
             className="admin-login-form"
           >
-
             <label>
               Admin password
 
@@ -374,7 +537,9 @@ export default function Admin() {
                 type="password"
                 value={password}
                 onChange={(event) =>
-                  setPassword(event.target.value)
+                  setPassword(
+                    event.target.value
+                  )
                 }
                 placeholder="Enter password"
                 autoComplete="off"
@@ -397,7 +562,6 @@ export default function Admin() {
             >
               Enter Admin Panel
             </button>
-
           </form>
 
           <Link
@@ -406,16 +570,14 @@ export default function Admin() {
           >
             ← Back to dashboard
           </Link>
-
         </div>
-
       </main>
     );
   }
 
-  // ----------------------------------
+  // --------------------------------------------------
   // FILTER DEPOSITS
-  // ----------------------------------
+  // --------------------------------------------------
 
   const pendingDeposits =
     deposits.filter(
@@ -438,9 +600,9 @@ export default function Admin() {
         "rejected"
     );
 
-  // ----------------------------------
+  // --------------------------------------------------
   // ADMIN DASHBOARD
-  // ----------------------------------
+  // --------------------------------------------------
 
   return (
     <main className="admin-page">
@@ -488,7 +650,6 @@ export default function Admin() {
 
       </header>
 
-
       <div className="admin-container">
 
         {/* ADMIN WELCOME */}
@@ -510,7 +671,6 @@ export default function Admin() {
 
         </section>
 
-
         {/* ADMIN SUMMARY */}
 
         <section className="admin-summary">
@@ -527,7 +687,6 @@ export default function Admin() {
 
           </div>
 
-
           <div className="admin-stat-card">
 
             <span>
@@ -539,7 +698,6 @@ export default function Admin() {
             </strong>
 
           </div>
-
 
           <div className="admin-stat-card">
 
@@ -555,7 +713,6 @@ export default function Admin() {
 
         </section>
 
-
         {/* SUCCESS MESSAGE */}
 
         {message && (
@@ -567,7 +724,6 @@ export default function Admin() {
           </div>
         )}
 
-
         {/* ERROR MESSAGE */}
 
         {error && (
@@ -578,7 +734,6 @@ export default function Admin() {
             {error}
           </div>
         )}
-
 
         {/* PENDING DEPOSITS */}
 
@@ -610,7 +765,6 @@ export default function Admin() {
             </button>
 
           </div>
-
 
           {loading ? (
 
@@ -660,7 +814,6 @@ export default function Admin() {
 
                       </div>
 
-
                       <div>
 
                         <span>
@@ -677,7 +830,6 @@ export default function Admin() {
 
                     </div>
 
-
                     <div className="admin-deposit-details">
 
                       <div>
@@ -693,7 +845,6 @@ export default function Admin() {
 
                       </div>
 
-
                       <div>
 
                         <span>
@@ -707,7 +858,6 @@ export default function Admin() {
                         </p>
 
                       </div>
-
 
                       <div>
 
@@ -724,7 +874,6 @@ export default function Admin() {
                       </div>
 
                     </div>
-
 
                     <div className="admin-deposit-actions">
 
@@ -746,7 +895,6 @@ export default function Admin() {
                           ? "Processing..."
                           : "Approve deposit"}
                       </button>
-
 
                       <button
                         type="button"
@@ -777,7 +925,6 @@ export default function Admin() {
 
         </section>
 
-
         {/* APPROVED DEPOSITS */}
 
         <section className="admin-section">
@@ -793,11 +940,9 @@ export default function Admin() {
               <h2>
                 Approved deposits
               </h2>
-
             </div>
 
           </div>
-
 
           {approvedDeposits.length === 0 ? (
 
@@ -853,7 +998,6 @@ export default function Admin() {
 
         </section>
 
-
         {/* REJECTED DEPOSITS */}
 
         <section className="admin-section">
@@ -873,7 +1017,6 @@ export default function Admin() {
             </div>
 
           </div>
-
 
           {rejectedDeposits.length === 0 ? (
 
@@ -929,7 +1072,6 @@ export default function Admin() {
 
         </section>
 
-
         {/* FOOTER */}
 
         <footer className="dashboard-footer">
@@ -949,3 +1091,4 @@ export default function Admin() {
     </main>
   );
 }
+          
