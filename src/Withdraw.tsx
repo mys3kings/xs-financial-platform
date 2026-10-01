@@ -1,15 +1,15 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
+  addDoc,
   collection,
+  doc,
+  getDoc,
   getDocs,
   limit,
   query,
   serverTimestamp,
   where,
-  addDoc,
-  doc,
-  getDoc,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "./firebase";
@@ -73,6 +73,7 @@ export default function Withdraw() {
   const [success, setSuccess] = useState(false);
 
   const [reference, setReference] = useState("");
+  const [submittedAmount, setSubmittedAmount] = useState(0);
 
   const [error, setError] = useState("");
 
@@ -114,7 +115,7 @@ export default function Withdraw() {
           setAvailableBalance(0);
         }
       } catch (err) {
-        console.error("Withdraw profile error:", err);
+        console.error("WITHDRAW PROFILE ERROR:", err);
 
         setProfile({
           fullName: user.displayName || "XS User",
@@ -166,11 +167,6 @@ export default function Withdraw() {
       return;
     }
 
-    if (numericAmount <= 0) {
-      setError("Withdrawal amount must be greater than zero.");
-      return;
-    }
-
     if (numericAmount > availableBalance) {
       setError(
         "Your requested withdrawal is greater than your currently available balance.",
@@ -188,7 +184,9 @@ export default function Withdraw() {
     }
 
     if (!/^\d{10}$/.test(cleanAccountNumber)) {
-      setError("Please enter a valid 10-digit Nigerian bank account number.");
+      setError(
+        "Please enter a valid 10-digit Nigerian bank account number.",
+      );
       return;
     }
 
@@ -201,11 +199,9 @@ export default function Withdraw() {
       setSubmitting(true);
 
       /*
-       * Check for an existing pending withdrawal.
-       *
-       * This is a user-experience safeguard only.
-       * The final duplicate/eligibility enforcement must also happen
-       * through trusted backend logic/security rules.
+       * This checks whether the user already has a pending
+       * withdrawal. Backend/security rules must also enforce
+       * the actual financial restrictions.
        */
       const pendingQuery = query(
         collection(db, "withdrawals"),
@@ -229,10 +225,14 @@ export default function Withdraw() {
         userId,
 
         userFullName:
-          profile?.fullName || auth.currentUser?.displayName || "XS User",
+          profile?.fullName ||
+          auth.currentUser?.displayName ||
+          "XS User",
 
         userEmail:
-          profile?.email || auth.currentUser?.email || "",
+          profile?.email ||
+          auth.currentUser?.email ||
+          "",
 
         amount: numericAmount,
         currency: "NGN",
@@ -258,6 +258,7 @@ export default function Withdraw() {
       });
 
       setReference(withdrawalReference);
+      setSubmittedAmount(numericAmount);
       setSuccess(true);
 
       setAmount("");
@@ -278,7 +279,6 @@ export default function Withdraw() {
       <main className="withdraw-page">
         <div className="withdraw-loading">
           <div className="dashboard-loader"></div>
-
           <p>Loading your withdrawal account...</p>
         </div>
       </main>
@@ -307,8 +307,8 @@ export default function Withdraw() {
             <h1>Request submitted successfully</h1>
 
             <p>
-              Your withdrawal request has been received and is currently
-              awaiting administrator review.
+              Your withdrawal request has been received and is
+              currently awaiting administrator review.
             </p>
 
             <div className="withdraw-success-details">
@@ -319,7 +319,7 @@ export default function Withdraw() {
 
               <div>
                 <span>Amount</span>
-                <strong>{formatNaira(numericAmount)}</strong>
+                <strong>{formatNaira(submittedAmount)}</strong>
               </div>
 
               <div>
@@ -347,6 +347,8 @@ export default function Withdraw() {
                 onClick={() => {
                   setSuccess(false);
                   setReference("");
+                  setSubmittedAmount(0);
+                  setError("");
                 }}
               >
                 Make another request
@@ -360,224 +362,8 @@ export default function Withdraw() {
 
   return (
     <main className="withdraw-page">
-      {/* HEADER */}
       <header className="withdraw-navbar">
         <Link to="/dashboard" className="dashboard-brand">
           <span className="brand-x">X</span>
           <span className="brand-s">S</span>
-          <span className="brand-name">Company Limited</span>
-        </Link>
-
-        <Link to="/dashboard" className="withdraw-back-link">
-          ← Dashboard
-        </Link>
-      </header>
-
-      <div className="withdraw-container">
-        {/* PAGE INTRO */}
-        <section className="withdraw-heading">
-          <p className="dashboard-eyebrow">WITHDRAW FUNDS</p>
-
-          <h1>Request a withdrawal</h1>
-
-          <p>
-            Enter the amount you want to withdraw and the bank account
-            where you want to receive your payment.
-          </p>
-        </section>
-
-        {/* BALANCE */}
-        <section className="withdraw-balance-card">
-          <div>
-            <span>Available Balance</span>
-
-            <strong>{formatNaira(availableBalance)}</strong>
-          </div>
-
-          <div className="withdraw-minimum">
-            <span>Minimum Withdrawal</span>
-
-            <strong>{formatNaira(MINIMUM_WITHDRAWAL)}</strong>
-          </div>
-        </section>
-
-        {/* WITHDRAWAL FORM */}
-        <section className="withdraw-form-card">
-          <div className="withdraw-form-heading">
-            <h2>Bank payment details</h2>
-
-            <p>
-              Make sure the information matches the bank account that
-              should receive your withdrawal.
-            </p>
-          </div>
-
-          {error && (
-            <div className="withdraw-error" role="alert">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="withdraw-form">
-            <div className="withdraw-form-group">
-              <label htmlFor="withdrawAmount">
-                Withdrawal Amount
-              </label>
-
-              <div className="withdraw-input-prefix">
-                <span>₦</span>
-
-                <input
-                  id="withdrawAmount"
-                  type="number"
-                  inputMode="decimal"
-                  min={MINIMUM_WITHDRAWAL}
-                  step="1"
-                  value={amount}
-                  onChange={(event) => {
-                    setAmount(event.target.value);
-                    setError("");
-                  }}
-                  placeholder="500"
-                  disabled={submitting}
-                />
-              </div>
-
-              <small>
-                Minimum withdrawal:{" "}
-                {formatNaira(MINIMUM_WITHDRAWAL)}
-              </small>
-            </div>
-
-            <div className="withdraw-form-group">
-              <label htmlFor="bankName">Bank Name</label>
-
-              <input
-                id="bankName"
-                type="text"
-                value={bankName}
-                onChange={(event) => {
-                  setBankName(event.target.value);
-                  setError("");
-                }}
-                placeholder="e.g. Moniepoint MFB"
-                autoComplete="organization"
-                disabled={submitting}
-              />
-            </div>
-
-            <div className="withdraw-form-group">
-              <label htmlFor="accountNumber">
-                Account Number
-              </label>
-
-              <input
-                id="accountNumber"
-                type="text"
-                inputMode="numeric"
-                maxLength={10}
-                value={accountNumber}
-                onChange={(event) => {
-                  const value = event.target.value
-                    .replace(/\D/g, "")
-                    .slice(0, 10);
-
-                  setAccountNumber(value);
-                  setError("");
-                }}
-                placeholder="10-digit account number"
-                autoComplete="off"
-                disabled={submitting}
-              />
-            </div>
-
-            <div className="withdraw-form-group">
-              <label htmlFor="accountHolderName">
-                Account Holder Name
-              </label>
-
-              <input
-                id="accountHolderName"
-                type="text"
-                value={accountHolderName}
-                onChange={(event) => {
-                  setAccountHolderName(event.target.value);
-                  setError("");
-                }}
-                placeholder="Enter the exact account holder name"
-                autoComplete="name"
-                disabled={submitting}
-              />
-
-              <small>
-                Enter the name registered on the receiving bank
-                account.
-              </small>
-            </div>
-
-            {/* REQUEST SUMMARY */}
-            <div className="withdraw-summary">
-              <div>
-                <span>Available balance</span>
-                <strong>{formatNaira(availableBalance)}</strong>
-              </div>
-
-              <div>
-                <span>Requested withdrawal</span>
-                <strong>
-                  {amount && amountIsValid
-                    ? formatNaira(numericAmount)
-                    : "₦0.00"}
-                </strong>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              className="primary-button withdraw-submit-button"
-              disabled={submitting}
-            >
-              {submitting
-                ? "Submitting request..."
-                : "Request Withdrawal"}
-            </button>
-          </form>
-        </section>
-
-        {/* PROCESS INFORMATION */}
-        <section className="withdraw-info-card">
-          <div className="withdraw-info-icon">i</div>
-
-          <div>
-            <h3>How withdrawals work</h3>
-
-            <ol>
-              <li>Submit your withdrawal request.</li>
-              <li>
-                XS reviews your request and bank information.
-              </li>
-              <li>
-                The administrator approves or rejects the request.
-              </li>
-              <li>
-                If approved, payment is sent manually to your bank
-                account.
-              </li>
-              <li>
-                The withdrawal is marked <strong>PAID</strong> only
-                after the payment has actually been sent.
-              </li>
-            </ol>
-          </div>
-        </section>
-
-        <footer className="dashboard-footer">
-          <strong>XS Company Limited</strong>
-          <span>
-            © {new Date().getFullYear()} All rights reserved.
-          </span>
-        </footer>
-      </div>
-    </main>
-  );
-  }
+          <span className="brand-name">
