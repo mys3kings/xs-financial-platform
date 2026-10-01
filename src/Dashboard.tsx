@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
@@ -10,8 +10,6 @@ type UserProfile = {
   email?: string;
   referralCode?: string;
 
-  // These can be added to the user document later
-  // by the trusted server-side system.
   balance?: number;
   referralEarnings?: number;
 };
@@ -32,73 +30,137 @@ const MINIMUM_DEPOSIT = 500;
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [investment, setInvestment] = useState<InvestmentData | null>(null);
+  // ---------------------------------
+  // SECRET ADMIN ACCESS
+  // ---------------------------------
+
+  const tapTimesRef = useRef<number[]>([]);
+
+  function handleSecretAdminTap() {
+    const now = Date.now();
+
+    tapTimesRef.current = [
+      ...tapTimesRef.current.filter(
+        (time) => now - time <= 2000
+      ),
+      now,
+    ];
+
+    // Four taps within 2 seconds
+    if (tapTimesRef.current.length >= 4) {
+      tapTimesRef.current = [];
+
+      navigate("/admin");
+    }
+  }
+
+  const [profile, setProfile] =
+    useState<UserProfile | null>(null);
+
+  const [investment, setInvestment] =
+    useState<InvestmentData | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
 
+  // ---------------------------------
+  // LOAD USER DATA
+  // ---------------------------------
+
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        setProfile(null);
-        setInvestment(null);
-        setLoading(false);
-
-        navigate("/login", { replace: true });
-        return;
-      }
-
-      try {
-        const userRef = doc(db, "users", user.uid);
-        const investmentRef = doc(db, "investments", user.uid);
-
-        // Load both documents at the same time.
-        const [userSnapshot, investmentSnapshot] = await Promise.all([
-          getDoc(userRef),
-          getDoc(investmentRef),
-        ]);
-
-        // -----------------------------
-        // USER PROFILE
-        // -----------------------------
-
-        if (userSnapshot.exists()) {
-          setProfile(userSnapshot.data() as UserProfile);
-        } else {
-          setProfile({
-            fullName: user.displayName || "XS User",
-            email: user.email || "",
-          });
-        }
-
-        // -----------------------------
-        // INVESTMENT
-        // -----------------------------
-
-        if (investmentSnapshot.exists()) {
-          setInvestment(
-            investmentSnapshot.data() as InvestmentData
-          );
-        } else {
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (user) => {
+        if (!user) {
+          setProfile(null);
           setInvestment(null);
+          setLoading(false);
+
+          navigate("/login", {
+            replace: true,
+          });
+
+          return;
         }
-      } catch (error) {
-        console.error("Dashboard data error:", error);
 
-        setProfile({
-          fullName: user.displayName || "XS User",
-          email: user.email || "",
-        });
+        try {
+          const userRef = doc(
+            db,
+            "users",
+            user.uid
+          );
 
-        setInvestment(null);
-      } finally {
-        setLoading(false);
+          const investmentRef = doc(
+            db,
+            "investments",
+            user.uid
+          );
+
+          // Load both documents together.
+          const [
+            userSnapshot,
+            investmentSnapshot,
+          ] = await Promise.all([
+            getDoc(userRef),
+            getDoc(investmentRef),
+          ]);
+
+          // ---------------------------------
+          // USER PROFILE
+          // ---------------------------------
+
+          if (userSnapshot.exists()) {
+            setProfile(
+              userSnapshot.data() as UserProfile
+            );
+          } else {
+            setProfile({
+              fullName:
+                user.displayName || "XS User",
+
+              email:
+                user.email || "",
+            });
+          }
+
+          // ---------------------------------
+          // INVESTMENT
+          // ---------------------------------
+
+          if (investmentSnapshot.exists()) {
+            setInvestment(
+              investmentSnapshot.data() as InvestmentData
+            );
+          } else {
+            setInvestment(null);
+          }
+        } catch (error) {
+          console.error(
+            "Dashboard data error:",
+            error
+          );
+
+          setProfile({
+            fullName:
+              user.displayName || "XS User",
+
+            email:
+              user.email || "",
+          });
+
+          setInvestment(null);
+        } finally {
+          setLoading(false);
+        }
       }
-    });
+    );
 
     return () => unsubscribe();
   }, [navigate]);
+
+  // ---------------------------------
+  // LOGOUT
+  // ---------------------------------
 
   async function handleLogout() {
     if (loggingOut) return;
@@ -108,32 +170,47 @@ export default function Dashboard() {
 
       await signOut(auth);
 
-      navigate("/login", { replace: true });
+      navigate("/login", {
+        replace: true,
+      });
     } catch (error) {
-      console.error("Logout error:", error);
+      console.error(
+        "Logout error:",
+        error
+      );
 
       setLoggingOut(false);
     }
   }
 
+  // ---------------------------------
+  // LOADING
+  // ---------------------------------
+
   if (loading) {
     return (
       <main className="dashboard-page">
         <div className="dashboard-loading">
+
           <div className="dashboard-loader"></div>
 
-          <p>Loading your XS dashboard...</p>
+          <p>
+            Loading your XS dashboard...
+          </p>
+
         </div>
       </main>
     );
   }
 
   const firstName =
-    profile?.fullName?.trim().split(" ")[0] || "there";
+    profile?.fullName
+      ?.trim()
+      .split(" ")[0] || "there";
 
-  // -----------------------------
+  // ---------------------------------
   // ACCOUNT VALUES
-  // -----------------------------
+  // ---------------------------------
 
   const availableBalance =
     typeof profile?.balance === "number"
@@ -145,12 +222,13 @@ export default function Dashboard() {
       ? profile.referralEarnings
       : 0;
 
-  // -----------------------------
+  // ---------------------------------
   // INVESTMENT VALUES
-  // -----------------------------
+  // ---------------------------------
 
   const isInvestmentActive =
-    investment?.status?.toUpperCase() === "ACTIVE";
+    investment?.status?.toUpperCase() ===
+    "ACTIVE";
 
   const investmentAmount =
     investment?.investmentAmount ??
@@ -161,9 +239,9 @@ export default function Dashboard() {
     investment?.dailyReturn ??
     DEFAULT_DAILY_RETURN;
 
-  // -----------------------------
+  // ---------------------------------
   // MONEY FORMATTER
-  // -----------------------------
+  // ---------------------------------
 
   function formatMoney(amount: number) {
     return `₦${amount.toLocaleString("en-NG", {
@@ -172,21 +250,71 @@ export default function Dashboard() {
     })}`;
   }
 
+  // ---------------------------------
+  // DASHBOARD
+  // ---------------------------------
+
   return (
     <main className="dashboard-page">
 
-      {/* TOP NAVIGATION */}
+      {/* =================================
+          TOP NAVIGATION
+          ================================= */}
 
       <header className="dashboard-navbar">
-        <Link to="/dashboard" className="dashboard-brand">
-          <span className="brand-x">X</span>
 
-          <span className="brand-s">S</span>
+        <Link
+          to="/dashboard"
+          className="dashboard-brand"
+          onClick={(event) => {
+            /*
+             * Stop the Link from navigating away
+             * when the user is performing the
+             * four-tap admin gesture.
+             *
+             * The X itself handles the secret taps.
+             */
+            event.stopPropagation();
+          }}
+        >
+
+          {/* SECRET FOUR-TAP X */}
+
+          <span
+            className="brand-x"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+
+              handleSecretAdminTap();
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="XS"
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" ||
+                event.key === " "
+              ) {
+                event.preventDefault();
+
+                handleSecretAdminTap();
+              }
+            }}
+          >
+            X
+          </span>
+
+          <span className="brand-s">
+            S
+          </span>
 
           <span className="brand-name">
             Company Limited
           </span>
+
         </Link>
+
 
         <button
           type="button"
@@ -199,14 +327,18 @@ export default function Dashboard() {
             ? "Logging out..."
             : "Logout"}
         </button>
+
       </header>
 
 
       <div className="dashboard-container">
 
-        {/* WELCOME */}
+        {/* =================================
+            WELCOME
+            ================================= */}
 
         <section className="dashboard-welcome">
+
           <div>
 
             <p className="dashboard-eyebrow">
@@ -223,10 +355,13 @@ export default function Dashboard() {
             </p>
 
           </div>
+
         </section>
 
 
-        {/* ACCOUNT SUMMARY */}
+        {/* =================================
+            ACCOUNT SUMMARY
+            ================================= */}
 
         <section className="dashboard-summary">
 
@@ -247,7 +382,9 @@ export default function Dashboard() {
             </div>
 
             <strong>
-              {formatMoney(availableBalance)}
+              {formatMoney(
+                availableBalance
+              )}
             </strong>
 
             <p>
@@ -275,7 +412,9 @@ export default function Dashboard() {
 
             <strong>
               {isInvestmentActive
-                ? formatMoney(investmentAmount)
+                ? formatMoney(
+                    investmentAmount
+                  )
                 : "₦0.00"}
             </strong>
 
@@ -305,7 +444,9 @@ export default function Dashboard() {
             </div>
 
             <strong>
-              {formatMoney(referralEarnings)}
+              {formatMoney(
+                referralEarnings
+              )}
             </strong>
 
             <p>
@@ -317,7 +458,9 @@ export default function Dashboard() {
         </section>
 
 
-        {/* QUICK ACTIONS */}
+        {/* =================================
+            QUICK ACTIONS
+            ================================= */}
 
         <section className="dashboard-section">
 
@@ -428,7 +571,9 @@ export default function Dashboard() {
         </section>
 
 
-        {/* INVESTMENT STATUS */}
+        {/* =================================
+            INVESTMENT STATUS
+            ================================= */}
 
         <section className="dashboard-section">
 
@@ -451,8 +596,6 @@ export default function Dashboard() {
 
           {isInvestmentActive ? (
 
-            /* ACTIVE INVESTMENT */
-
             <div className="investment-empty-card">
 
               <div className="investment-clock">
@@ -468,14 +611,18 @@ export default function Dashboard() {
                 <p>
                   Investment amount:{" "}
                   <strong>
-                    {formatMoney(investmentAmount)}
+                    {formatMoney(
+                      investmentAmount
+                    )}
                   </strong>
                 </p>
 
                 <p>
                   Daily return:{" "}
                   <strong>
-                    {formatMoney(dailyReturn)}
+                    {formatMoney(
+                      dailyReturn
+                    )}
                   </strong>
                 </p>
 
@@ -492,8 +639,6 @@ export default function Dashboard() {
 
           ) : (
 
-            /* NO ACTIVE INVESTMENT */
-
             <div className="investment-empty-card">
 
               <div className="investment-clock">
@@ -508,7 +653,9 @@ export default function Dashboard() {
 
                 <p>
                   Make a minimum deposit of{" "}
-                  {formatMoney(MINIMUM_DEPOSIT)}{" "}
+                  {formatMoney(
+                    MINIMUM_DEPOSIT
+                  )}{" "}
                   to start your XS investment cycle.
                 </p>
 
@@ -528,7 +675,9 @@ export default function Dashboard() {
         </section>
 
 
-        {/* DAILY RETURN INFORMATION */}
+        {/* =================================
+            DAILY RETURN INFORMATION
+            ================================= */}
 
         {isInvestmentActive && (
 
@@ -566,7 +715,9 @@ export default function Dashboard() {
               </div>
 
               <strong>
-                {formatMoney(dailyReturn)}
+                {formatMoney(
+                  dailyReturn
+                )}
               </strong>
 
               <p>
@@ -581,7 +732,9 @@ export default function Dashboard() {
         )}
 
 
-        {/* REFERRAL */}
+        {/* =================================
+            REFERRAL
+            ================================= */}
 
         <section className="dashboard-section">
 
@@ -625,7 +778,9 @@ export default function Dashboard() {
               </span>
 
               <strong>
-                {formatMoney(referralEarnings)}
+                {formatMoney(
+                  referralEarnings
+                )}
               </strong>
 
             </div>
@@ -643,7 +798,9 @@ export default function Dashboard() {
         </section>
 
 
-        {/* ACCOUNT INFORMATION */}
+        {/* =================================
+            ACCOUNT INFORMATION
+            ================================= */}
 
         <section className="dashboard-section">
 
@@ -709,7 +866,9 @@ export default function Dashboard() {
         </section>
 
 
-        {/* FOOTER */}
+        {/* =================================
+            FOOTER
+            ================================= */}
 
         <footer className="dashboard-footer">
 
