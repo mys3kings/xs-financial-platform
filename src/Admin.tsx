@@ -146,7 +146,8 @@ function getStatusClass(status?: string) {
   if (
     normalized === "approved" ||
     normalized === "paid" ||
-    normalized === "active"
+    normalized === "active" ||
+    normalized === "successful"
   ) {
     return "status-success";
   }
@@ -171,12 +172,6 @@ function getStatusClass(status?: string) {
 export default function Admin() {
   const navigate = useNavigate();
 
-  /*
-   * ============================================================
-   * ADMIN AUTHENTICATION
-   * ============================================================
-   */
-
   const [authenticated, setAuthenticated] =
     useState(false);
 
@@ -184,12 +179,6 @@ export default function Admin() {
 
   const [passwordError, setPasswordError] =
     useState("");
-
-  /*
-   * ============================================================
-   * ADMIN DATA
-   * ============================================================
-   */
 
   const [deposits, setDeposits] =
     useState<Deposit[]>([]);
@@ -202,12 +191,6 @@ export default function Admin() {
 
   const [investments, setInvestments] =
     useState<Investment[]>([]);
-
-  /*
-   * ============================================================
-   * UI STATE
-   * ============================================================
-   */
 
   const [activeSection, setActiveSection] =
     useState<AdminSection>("overview");
@@ -230,23 +213,6 @@ export default function Admin() {
   const [userSearch, setUserSearch] =
     useState("");
 
-  /*
-   * ============================================================
-   * WITHDRAWAL PORTAL CONTROL
-   * ============================================================
-   *
-   * settings/withdrawalPortal
-   *
-   * {
-   *   locked: true/false,
-   *   updatedAt: timestamp,
-   *   updatedBy: "admin"
-   * }
-   *
-   * When locked, Withdraw.tsx will prevent users from
-   * creating new withdrawal requests.
-   */
-
   const [
     withdrawalPortalLocked,
     setWithdrawalPortalLocked,
@@ -256,12 +222,6 @@ export default function Admin() {
     withdrawalPortalLoading,
     setWithdrawalPortalLoading,
   ] = useState(false);
-
-  /*
-   * ============================================================
-   * ADMIN LOGIN SESSION
-   * ============================================================
-   */
 
   useEffect(() => {
     const savedAuth = sessionStorage.getItem(
@@ -292,13 +252,15 @@ export default function Admin() {
     setPassword("");
   }
 
-  /*
-   * ============================================================
-   * LOAD USERS
-   * ============================================================
-   */
+  function handleAdminLogout() {
+    sessionStorage.removeItem(
+      "xs_admin_authenticated"
+    );
 
-  async function loadUsers() {
+    setAuthenticated(false);
+    setPassword("");
+    setActiveSection("overview");
+}  async function loadUsers() {
     const snapshot = await getDocs(
       collection(db, "users")
     );
@@ -364,14 +326,14 @@ export default function Admin() {
       });
     });
 
+    userList.sort((a, b) =>
+      String(a.fullName || "").localeCompare(
+        String(b.fullName || "")
+      )
+    );
+
     setUsers(userList);
   }
-
-  /*
-   * ============================================================
-   * LOAD INVESTMENTS
-   * ============================================================
-   */
 
   async function loadInvestments() {
     const snapshot = await getDocs(
@@ -442,12 +404,6 @@ export default function Admin() {
     setInvestments(investmentList);
   }
 
-  /*
-   * ============================================================
-   * LOAD DEPOSITS
-   * ============================================================
-   */
-
   async function loadDeposits() {
     const depositsQuery = query(
       collection(db, "deposits"),
@@ -497,12 +453,6 @@ export default function Admin() {
 
     setDeposits(depositList);
   }
-
-  /*
-   * ============================================================
-   * LOAD WITHDRAWALS
-   * ============================================================
-   */
 
   async function loadWithdrawals() {
     const withdrawalsQuery = query(
@@ -582,12 +532,6 @@ export default function Admin() {
     );
   }
 
-  /*
-   * ============================================================
-   * LOAD WITHDRAWAL PORTAL STATUS
-   * ============================================================
-   */
-
   async function loadWithdrawalPortalStatus() {
     const settingsRef = doc(
       db,
@@ -611,12 +555,6 @@ export default function Admin() {
       );
     }
   }
-
-  /*
-   * ============================================================
-   * LOAD ALL ADMIN DATA
-   * ============================================================
-   */
 
   async function loadAdminData() {
     try {
@@ -650,12 +588,6 @@ export default function Admin() {
     }
   }, [authenticated]);
 
-  /*
-   * ============================================================
-   * REFRESH
-   * ============================================================
-   */
-
   async function handleRefresh() {
     setMessage("");
     setError("");
@@ -666,12 +598,6 @@ export default function Admin() {
       "Admin data refreshed successfully."
     );
   }
-
-  /*
-   * ============================================================
-   * WITHDRAWAL PORTAL LOCK / UNLOCK
-   * ============================================================
-   */
 
   async function toggleWithdrawalPortal() {
     const newLockedState =
@@ -726,15 +652,11 @@ export default function Admin() {
         newLockedState
       );
 
-      if (newLockedState) {
-        setMessage(
-          "Withdrawal portal has been LOCKED. Users cannot submit new withdrawal requests."
-        );
-      } else {
-        setMessage(
-          "Withdrawal portal has been UNLOCKED. Users can submit withdrawal requests again."
-        );
-      }
+      setMessage(
+        newLockedState
+          ? "Withdrawal portal has been LOCKED. Users cannot submit new withdrawal requests."
+          : "Withdrawal portal has been UNLOCKED. Users can submit withdrawal requests again."
+      );
     } catch (err) {
       console.error(
         "Withdrawal portal update error:",
@@ -749,33 +671,7 @@ export default function Admin() {
         false
       );
     }
-  }
-
-  /*
-   * ============================================================
-   * APPROVE DEPOSIT
-   * ============================================================
-   *
-   * Approval:
-   *
-   * deposits/{depositId}
-   *        status = approved
-   *
-   * investments/{userId}
-   *        status = ACTIVE
-   *        investmentAmount = deposit amount
-   *        principalAmount = deposit amount
-   *        dailyReturn = 200
-   *        cycleDays = 3
-   *        totalReturns = 0
-   *        returnsProcessed = 0
-   *        nextReturnAt = next Nigerian midnight
-   *
-   * The actual daily return is handled by returnLogic.ts
-   * when the user opens the Investment page.
-   */
-
-  async function approveDeposit(
+            }  async function approveDeposit(
     deposit: Deposit
   ) {
     if (!deposit.userId) {
@@ -912,12 +808,6 @@ export default function Admin() {
         }
       );
 
-      /*
-       * Keep the user's investmentStatus
-       * synchronized if that field exists
-       * in the rest of the application.
-       */
-
       const userRef =
         doc(
           db,
@@ -959,12 +849,6 @@ export default function Admin() {
       setProcessingId("");
     }
   }
-
-  /*
-   * ============================================================
-   * REJECT DEPOSIT
-   * ============================================================
-   */
 
   async function rejectDeposit(
     deposit: Deposit
@@ -1036,36 +920,23 @@ export default function Admin() {
     } finally {
       setProcessingId("");
     }
-}  /*
-   * ============================================================
-   * PROCESS / PAY WITHDRAWAL
-   * ============================================================
-   *
-   * IMPORTANT:
-   * This function marks the withdrawal as PAID after the
-   * administrator confirms that the money has actually been sent.
-   *
-   * It does NOT deduct the user's balance here.
-   *
-   * The withdrawal request flow should already handle the
-   * user's available balance when the request is created.
-   *
-   * This prevents the same withdrawal from being deducted twice.
-   */
+  }
 
-  async function processWithdrawal(
+  async function approveWithdrawal(
     withdrawal: Withdrawal
   ) {
-    if (!withdrawal.userId) {
+    const amount = Number(
+      withdrawal.amount || 0
+    );
+
+    if (
+      !withdrawal.userId
+    ) {
       setError(
         "This withdrawal does not have a valid user ID."
       );
       return;
     }
-
-    const amount = Number(
-      withdrawal.amount || 0
-    );
 
     if (
       amount <
@@ -1080,43 +951,38 @@ export default function Admin() {
     }
 
     const status =
-      String(
-        withdrawal.status || ""
-      ).toUpperCase();
+      normalizeStatus(
+        withdrawal.status
+      );
 
-    if (status !== "PENDING") {
+    if (
+      status === "paid" ||
+      status === "successful" ||
+      status === "rejected"
+    ) {
       setError(
         "This withdrawal has already been processed."
       );
       return;
     }
 
-    /*
-     * The admin must provide the actual payment
-     * reference before marking the withdrawal paid.
-     */
-
     const paymentReference =
       window.prompt(
-        "Enter the payment reference used for this withdrawal:"
+        "Enter the payment reference (optional):",
+        withdrawal.reference || ""
       );
 
     if (
-      !paymentReference ||
-      !paymentReference.trim()
+      paymentReference === null
     ) {
       return;
     }
 
     const confirmed =
       window.confirm(
-        `Confirm that ${formatMoney(
+        `Mark ${formatMoney(
           amount
-        )} has actually been sent to ${
-          withdrawal.accountHolderName ||
-          withdrawal.userFullName ||
-          "the user"
-        }?`
+        )} as paid and sent to ${withdrawal.accountHolderName || "the user"}?`
       );
 
     if (!confirmed) {
@@ -1142,7 +1008,7 @@ export default function Admin() {
         withdrawalRef,
         {
           status:
-            "PAID",
+            "paid",
 
           reviewedAt:
             serverTimestamp(),
@@ -1157,18 +1023,21 @@ export default function Admin() {
             "admin",
 
           paymentReference:
-            paymentReference.trim(),
+            paymentReference.trim() ||
+            null,
         }
       );
 
       setMessage(
-        `Withdrawal marked as PAID. Payment reference: ${paymentReference.trim()}`
+        `Withdrawal of ${formatMoney(
+          amount
+        )} marked as paid successfully.`
       );
 
       await loadAdminData();
     } catch (err) {
       console.error(
-        "Process withdrawal error:",
+        "Approve withdrawal error:",
         err
       );
 
@@ -1178,23 +1047,19 @@ export default function Admin() {
     } finally {
       setProcessingId("");
     }
-  }
-
-  /*
-   * ============================================================
-   * REJECT WITHDRAWAL
-   * ============================================================
-   */
-
-  async function rejectWithdrawal(
+  }  async function rejectWithdrawal(
     withdrawal: Withdrawal
   ) {
     const status =
-      String(
-        withdrawal.status || ""
-      ).toUpperCase();
+      normalizeStatus(
+        withdrawal.status
+      );
 
-    if (status !== "PENDING") {
+    if (
+      status === "paid" ||
+      status === "successful" ||
+      status === "rejected"
+    ) {
       setError(
         "This withdrawal has already been processed."
       );
@@ -1203,13 +1068,11 @@ export default function Admin() {
 
     const reason =
       window.prompt(
-        "Enter the reason for rejecting this withdrawal:"
+        "Enter a rejection reason (optional):",
+        ""
       );
 
-    if (
-      !reason ||
-      !reason.trim()
-    ) {
+    if (reason === null) {
       return;
     }
 
@@ -1241,7 +1104,7 @@ export default function Admin() {
         withdrawalRef,
         {
           status:
-            "REJECTED",
+            "rejected",
 
           reviewedAt:
             serverTimestamp(),
@@ -1250,7 +1113,8 @@ export default function Admin() {
             "admin",
 
           rejectionReason:
-            reason.trim(),
+            reason.trim() ||
+            null,
         }
       );
 
@@ -1273,324 +1137,279 @@ export default function Admin() {
     }
   }
 
-  /*
-   * ============================================================
-   * USER / INVESTMENT HELPERS
-   * ============================================================
-   */
-
-  function getUserInvestment(
-    userId: string
+  async function updateInvestmentStatus(
+    investment: Investment,
+    status: "ACTIVE" | "INACTIVE"
   ) {
+    const confirmed =
+      window.confirm(
+        `Are you sure you want to mark this investment as ${status}?`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setProcessingId(
+        investment.id
+      );
+
+      setError("");
+      setMessage("");
+
+      const investmentRef =
+        doc(
+          db,
+          "investments",
+          investment.id
+        );
+
+      await updateDoc(
+        investmentRef,
+        {
+          status,
+
+          updatedAt:
+            serverTimestamp(),
+        }
+      );
+
+      if (investment.userId) {
+        const userRef =
+          doc(
+            db,
+            "users",
+            investment.userId
+          );
+
+        await setDoc(
+          userRef,
+          {
+            investmentStatus:
+              status,
+
+            updatedAt:
+              serverTimestamp(),
+          },
+          {
+            merge: true,
+          }
+        );
+      }
+
+      setMessage(
+        `Investment status changed to ${status}.`
+      );
+
+      await loadAdminData();
+    } catch (err) {
+      console.error(
+        "Investment status update error:",
+        err
+      );
+
+      setError(
+        "Investment status could not be updated."
+      );
+    } finally {
+      setProcessingId("");
+    }
+  }
+
+  const pendingDeposits =
+    useMemo(
+      () =>
+        deposits.filter(
+          (deposit) =>
+            normalizeStatus(
+              deposit.status
+            ) === "pending"
+        ),
+      [deposits]
+    );
+
+  const pendingWithdrawals =
+    useMemo(
+      () =>
+        withdrawals.filter(
+          (withdrawal) =>
+            normalizeStatus(
+              withdrawal.status
+            ) === "pending"
+        ),
+      [withdrawals]
+    );
+
+  const activeInvestments =
+    useMemo(
+      () =>
+        investments.filter(
+          (investment) =>
+            normalizeStatus(
+              investment.status
+            ) === "active"
+        ),
+      [investments]
+    );
+
+  const totalDeposited =
+    useMemo(
+      () =>
+        deposits
+          .filter(
+            (deposit) =>
+              normalizeStatus(
+                deposit.status
+              ) === "approved"
+          )
+          .reduce(
+            (total, deposit) =>
+              total +
+              Number(
+                deposit.amount || 0
+              ),
+            0
+          ),
+      [deposits]
+    );
+
+  const totalPaidWithdrawals =
+    useMemo(
+      () =>
+        withdrawals
+          .filter(
+            (withdrawal) =>
+              normalizeStatus(
+                withdrawal.status
+              ) === "paid"
+          )
+          .reduce(
+            (total, withdrawal) =>
+              total +
+              Number(
+                withdrawal.amount || 0
+              ),
+            0
+          ),
+      [withdrawals]
+    );
+
+  const totalInvestmentReturns =
+    useMemo(
+      () =>
+        investments.reduce(
+          (total, investment) =>
+            total +
+            Number(
+              investment.totalReturns || 0
+            ),
+          0
+        ),
+      [investments]
+    );
+
+  const filteredUsers =
+    useMemo(() => {
+      const search =
+        userSearch
+          .trim()
+          .toLowerCase();
+
+      if (!search) {
+        return users;
+      }
+
+      return users.filter(
+        (user) =>
+          String(
+            user.fullName || ""
+          )
+            .toLowerCase()
+            .includes(search) ||
+          String(
+            user.email || ""
+          )
+            .toLowerCase()
+            .includes(search) ||
+          String(
+            user.phone || ""
+          )
+            .toLowerCase()
+            .includes(search) ||
+          String(
+            user.referralCode || ""
+          )
+            .toLowerCase()
+            .includes(search) ||
+          user.id
+            .toLowerCase()
+            .includes(search)
+      );
+    }, [users, userSearch]);
+
+  function getUserById(
+    userId?: string
+  ) {
+    if (!userId) {
+      return undefined;
+    }
+
+    return users.find(
+      (user) =>
+        user.id === userId
+    );
+  }
+
+  function getInvestmentByUserId(
+    userId?: string
+  ) {
+    if (!userId) {
+      return undefined;
+    }
+
     return investments.find(
       (investment) =>
         investment.userId === userId ||
         investment.id === userId
     );
-  }
-
-  function getUserTotalDeposited(
-    userId: string
-  ) {
-    return deposits
-      .filter(
-        (deposit) =>
-          deposit.userId === userId &&
-          normalizeStatus(
-            deposit.status
-          ) === "approved"
-      )
-      .reduce(
-        (total, deposit) =>
-          total +
-          Number(
-            deposit.amount || 0
-          ),
-        0
-      );
-  }
-
-  function getUserDepositCount(
-    userId: string
-  ) {
-    return deposits.filter(
-      (deposit) =>
-        deposit.userId === userId &&
-        normalizeStatus(
-          deposit.status
-        ) === "approved"
-    ).length;
-  }
-
-  function getUserWithdrawalTotal(
-    userId: string
-  ) {
-    return withdrawals
-      .filter(
-        (withdrawal) =>
-          withdrawal.userId === userId &&
-          String(
-            withdrawal.status || ""
-          ).toUpperCase() === "PAID"
-      )
-      .reduce(
-        (total, withdrawal) =>
-          total +
-          Number(
-            withdrawal.amount || 0
-          ),
-        0
-      );
-  }
-
-  function getUserPendingWithdrawals(
-    userId: string
-  ) {
-    return withdrawals
-      .filter(
-        (withdrawal) =>
-          withdrawal.userId === userId &&
-          String(
-            withdrawal.status || ""
-          ).toUpperCase() === "PENDING"
-      )
-      .reduce(
-        (total, withdrawal) =>
-          total +
-          Number(
-            withdrawal.amount || 0
-          ),
-        0
-      );
-  }
-
-  function getUserTotalReturns(
-    userId: string
-  ) {
-    const investment =
-      getUserInvestment(userId);
-
-    return Number(
-      investment?.totalReturns || 0
-    );
-  }
-
-  /*
-   * ============================================================
-   * USER SEARCH
-   * ============================================================
-   */
-
-  const filteredUsers = useMemo(() => {
-    const search =
-      userSearch
-        .trim()
-        .toLowerCase();
-
-    if (!search) {
-      return users;
-    }
-
-    return users.filter(
-      (user) =>
-        String(
-          user.fullName || ""
-        )
-          .toLowerCase()
-          .includes(search) ||
-
-        String(
-          user.email || ""
-        )
-          .toLowerCase()
-          .includes(search) ||
-
-        String(
-          user.phone || ""
-        )
-          .toLowerCase()
-          .includes(search) ||
-
-        String(
-          user.referralCode || ""
-        )
-          .toLowerCase()
-          .includes(search) ||
-
-        user.id
-          .toLowerCase()
-          .includes(search)
-    );
-  }, [users, userSearch]);
-
-  /*
-   * ============================================================
-   * DASHBOARD STATISTICS
-   * ============================================================
-   */
-
-  const totalUsers =
-    users.length;
-
-  const totalDeposits =
-    deposits
-      .filter(
-        (deposit) =>
-          normalizeStatus(
-            deposit.status
-          ) === "approved"
-      )
-      .reduce(
-        (total, deposit) =>
-          total +
-          Number(
-            deposit.amount || 0
-          ),
-        0
-      );
-
-  const totalWithdrawals =
-    withdrawals
-      .filter(
-        (withdrawal) =>
-          String(
-            withdrawal.status || ""
-          ).toUpperCase() === "PAID"
-      )
-      .reduce(
-        (total, withdrawal) =>
-          total +
-          Number(
-            withdrawal.amount || 0
-          ),
-        0
-      );
-
-  const pendingDeposits =
-    deposits.filter(
-      (deposit) =>
-        normalizeStatus(
-          deposit.status
-        ) === "pending"
-    );
-
-  const pendingWithdrawals =
-    withdrawals.filter(
-      (withdrawal) =>
-        String(
-          withdrawal.status || ""
-        ).toUpperCase() ===
-        "PENDING"
-    );
-
-  const activeInvestments =
-    investments.filter(
-      (investment) =>
-        normalizeStatus(
-          investment.status
-        ) === "active"
-    );
-
-  const totalReferralEarnings =
-    users.reduce(
-      (total, user) =>
-        total +
-        Number(
-          user.referralEarnings || 0
-        ),
-      0
-    );
-
-  /*
-   * ============================================================
-   * SELECT USER
-   * ============================================================
-   */
-
-  function openUser(
-    user: UserRecord
-  ) {
-    setSelectedUser(user);
-  }
-
-  function closeUser() {
-    setSelectedUser(null);
-  }
-
-  /*
-   * ============================================================
-   * LOGOUT
-   * ============================================================
-   */
-
-  async function handleLogout() {
-    sessionStorage.removeItem(
-      "xs_admin_authenticated"
-    );
-
-    try {
-      await signOut(auth);
-    } catch {
-      /*
-       * The admin password session is independent
-       * of Firebase authentication, so even if Firebase
-       * sign-out fails, the admin session is still cleared.
-       */
-    }
-
-    setAuthenticated(false);
-
-    navigate("/");
-  }
-
-  /*
-   * ============================================================
-   * NAVIGATION
-   * ============================================================
-   */
-
-  function changeSection(
-    section: AdminSection
-  ) {
-    setActiveSection(section);
-    setSelectedUser(null);
-    setMessage("");
-    setError("");
-  }
-
-  /*
-   * ============================================================
-   * ADMIN LOGIN SCREEN
-   * ============================================================
-   */
-
-  if (!authenticated) {
+          }  if (!authenticated) {
     return (
-      <main className="admin-page">
-        <div className="admin-login-container">
-          <section className="admin-login-card">
-            <div className="admin-logo">
-              <span className="brand-x">
-                X
-              </span>
+      <div className="admin-login-page">
+        <div className="admin-login-card">
+          <div className="admin-logo">
+            XS
+          </div>
 
-              <span className="brand-s">
-                S
-              </span>
-            </div>
+          <h1>
+            XS Company Limited
+          </h1>
 
-            <p className="dashboard-eyebrow">
-              XS COMPANY LIMITED
-            </p>
+          <p>
+            Admin Dashboard
+          </p>
 
-            <h1>
-              Admin Panel
-            </h1>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleAdminLogin();
+            }}
+          >
+            <label>
+              Admin Password
+            </label>
 
-            <p>
-              Enter the administrator
-              password to continue.
-            </p>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) =>
+                setPassword(
+                  event.target.value
+                )
+              }
+              placeholder="Enter admin password"
+              autoComplete="current-password"
+            />
 
             {passwordError && (
               <div className="admin-error">
@@ -1598,726 +1417,222 @@ export default function Admin() {
               </div>
             )}
 
-            <div className="admin-form-group">
-              <label htmlFor="adminPassword">
-                Admin Password
-              </label>
-
-              <input
-                id="adminPassword"
-                type="password"
-                value={password}
-                onChange={(event) => {
-                  setPassword(
-                    event.target.value
-                  );
-
-                  setPasswordError("");
-                }}
-                onKeyDown={(event) => {
-                  if (
-                    event.key ===
-                    "Enter"
-                  ) {
-                    handleAdminLogin();
-                  }
-                }}
-                placeholder="Enter admin password"
-              />
-            </div>
-
             <button
-              type="button"
-              className="primary-button"
-              onClick={
-                handleAdminLogin
-              }
+              type="submit"
+              className="admin-primary-button"
             >
-              Enter Admin Panel
+              Access Admin Panel
             </button>
+          </form>
 
-            <Link
-              to="/"
-              className="admin-back-link"
-            >
-              Back to XS
-            </Link>
-          </section>
+          <Link
+            to="/"
+            className="admin-back-link"
+          >
+            Back to website
+          </Link>
         </div>
-      </main>
+      </div>
     );
   }
 
-  /*
-   * ============================================================
-   * USER DETAIL VIEW
-   * ============================================================
-   */
-
-  if (
-    activeSection === "users" &&
-    selectedUser
-  ) {
-    const investment =
-      getUserInvestment(
-        selectedUser.id
-      );
-
-    const userDeposits =
-      deposits.filter(
-        (deposit) =>
-          deposit.userId ===
-          selectedUser.id
-      );
-
-    const userWithdrawals =
-      withdrawals.filter(
-        (withdrawal) =>
-          withdrawal.userId ===
-          selectedUser.id
-      );
-
-    return (
-      <main className="admin-page">
-        <div className="admin-layout">
-          <aside className="admin-sidebar">
-            <div className="admin-sidebar-brand">
-              <span className="brand-x">
-                X
-              </span>
-
-              <span className="brand-s">
-                S
-              </span>
-
-              <span>
-                Admin
-              </span>
-            </div>
-
-            <nav className="admin-nav">
-              <button
-                type="button"
-                onClick={() =>
-                  changeSection(
-                    "overview"
-                  )
-                }
-              >
-                Dashboard
-              </button>
-
-              <button
-                type="button"
-                className="active"
-                onClick={() =>
-                  changeSection(
-                    "users"
-                  )
-                }
-              >
-                Users
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  changeSection(
-                    "deposits"
-                  )
-                }
-              >
-                Deposits
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  changeSection(
-                    "withdrawals"
-                  )
-                }
-              >
-                Withdrawals
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  changeSection(
-                    "investments"
-                  )
-                }
-              >
-                Investments
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  changeSection(
-                    "referrals"
-                  )
-                }
-              >
-                Referrals
-              </button>
-            </nav>
-
-            <div className="admin-sidebar-bottom">
-              <button
-                type="button"
-                onClick={
-                  handleLogout
-                }
-              >
-                Logout
-              </button>
-            </div>
-          </aside>
-
-          <section className="admin-content">
-            <header className="admin-header">
-              <div>
-                <button
-                  type="button"
-                  className="admin-back-button"
-                  onClick={
-                    closeUser
-                  }
-                >
-                  ← Back to Users
-                </button>
-
-                <p className="dashboard-eyebrow">
-                  XS COMPANY LIMITED
-                </p>
-
-                <h1>
-                  User Details
-                </h1>
-              </div>
-
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={
-                  handleRefresh
-                }
-              >
-                Refresh
-              </button>
-            </header>
-
-            {message && (
-              <div className="admin-success">
-                {message}
-              </div>
-            )}
-
-            {error && (
-              <div className="admin-error">
-                {error}
-              </div>
-            )}
-
-            <section className="admin-user-profile-card">
-              <div>
-                <div className="admin-avatar">
-                  {(
-                    selectedUser.fullName ||
-                    "U"
-                  )
-                    .charAt(0)
-                    .toUpperCase()}
-                </div>
-              </div>
-
-              <div className="admin-user-main-info">
-                <h2>
-                  {selectedUser.fullName ||
-                    "Unnamed User"}
-                </h2>
-
-                <p>
-                  {selectedUser.email ||
-                    "No email"}
-                </p>
-
-                <p>
-                  {selectedUser.phone ||
-                    "No phone number"}
-                </p>
-
-                <span
-                  className={`status-badge ${getStatusClass(
-                    selectedUser.investmentStatus
-                  )}`}
-                >
-                  {selectedUser.investmentStatus ||
-                    "ACTIVE"}
-                </span>
-              </div>
-            </section>
-
-            <section className="admin-stats-grid">
-              <div className="admin-stat-card">
-                <span>
-                  Available Balance
-                </span>
-
-                <strong>
-                  {formatMoney(
-                    selectedUser.availableBalance ??
-                      selectedUser.balance
-                  )}
-                </strong>
-              </div>
-
-              <div className="admin-stat-card">
-                <span>
-                  Total Deposited
-                </span>
-
-                <strong>
-                  {formatMoney(
-                    getUserTotalDeposited(
-                      selectedUser.id
-                    )
-                  )}
-                </strong>
-              </div>
-
-              <div className="admin-stat-card">
-                <span>
-                  Total Returns
-                </span>
-
-                <strong>
-                  {formatMoney(
-                    getUserTotalReturns(
-                      selectedUser.id
-                    )
-                  )}
-                </strong>
-              </div>
-
-              <div className="admin-stat-card">
-                <span>
-                  Total Withdrawn
-                </span>
-
-                <strong>
-                  {formatMoney(
-                    getUserWithdrawalTotal(
-                      selectedUser.id
-                    )
-                  )}
-                </strong>
-              </div>
-
-              <div className="admin-stat-card">
-                <span>
-                  Pending Withdrawals
-                </span>
-
-                <strong>
-                  {formatMoney(
-                    getUserPendingWithdrawals(
-                      selectedUser.id
-                    )
-                  )}
-                </strong>
-              </div>
-
-              <div className="admin-stat-card">
-                <span>
-                  Referral Earnings
-                </span>
-
-                <strong>
-                  {formatMoney(
-                    selectedUser.referralEarnings
-                  )}
-                </strong>
-              </div>
-            </section>
-
-            <section className="admin-panel">
-              <div className="admin-panel-header">
-                <div>
-                  <h2>
-                    Investment
-                  </h2>
-
-                  <p>
-                    Current investment
-                    information for this
-                    user.
-                  </p>
-                </div>
-              </div>
-
-              {investment ? (
-    /*
-   * ============================================================
-   * MAIN ADMIN DASHBOARD
-   * ============================================================
-   */
-
   return (
-    <main className="admin-page">
+    <div className="admin-page">
+      <header className="admin-header">
+        <div>
+          <div className="admin-brand">
+            XS
+          </div>
+
+          <div>
+            <h1>
+              XS Company Limited
+            </h1>
+
+            <span>
+              Administration Panel
+            </span>
+          </div>
+        </div>
+
+        <div className="admin-header-actions">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={loading}
+            className="admin-secondary-button"
+          >
+            {loading
+              ? "Refreshing..."
+              : "Refresh"}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleAdminLogout}
+            className="admin-danger-button"
+          >
+            Logout
+          </button>
+        </div>
+      </header>
+
       <div className="admin-layout">
-        {/* ======================================================
-            SIDEBAR
-        ====================================================== */}
-
         <aside className="admin-sidebar">
-          <div className="admin-sidebar-brand">
-            <div className="admin-logo">
-              <span className="brand-x">
-                X
+          <button
+            className={
+              activeSection === "overview"
+                ? "admin-nav-button active"
+                : "admin-nav-button"
+            }
+            onClick={() =>
+              setActiveSection(
+                "overview"
+              )
+            }
+          >
+            Overview
+          </button>
+
+          <button
+            className={
+              activeSection === "users"
+                ? "admin-nav-button active"
+                : "admin-nav-button"
+            }
+            onClick={() =>
+              setActiveSection(
+                "users"
+              )
+            }
+          >
+            Users
+          </button>
+
+          <button
+            className={
+              activeSection === "deposits"
+                ? "admin-nav-button active"
+                : "admin-nav-button"
+            }
+            onClick={() =>
+              setActiveSection(
+                "deposits"
+              )
+            }
+          >
+            Deposits
+            {pendingDeposits.length >
+              0 && (
+              <span className="admin-count">
+                {pendingDeposits.length}
               </span>
+            )}
+          </button>
 
-              <span className="brand-s">
-                S
-              </span>
-            </div>
-
-            <div>
-              <strong>
-                XS
-              </strong>
-
-              <span>
-                Admin
-              </span>
-            </div>
-          </div>
-
-          <nav className="admin-nav">
-            <button
-              type="button"
-              className={
-                activeSection === "overview"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                changeSection(
-                  "overview"
-                )
-              }
-            >
-              <span>
-                Dashboard
-              </span>
-            </button>
-
-            <button
-              type="button"
-              className={
-                activeSection === "users"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                changeSection(
-                  "users"
-                )
-              }
-            >
-              <span>
-                Users
-              </span>
-
-              <small>
-                {totalUsers}
-              </small>
-            </button>
-
-            <button
-              type="button"
-              className={
-                activeSection === "deposits"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                changeSection(
-                  "deposits"
-                )
-              }
-            >
-              <span>
-                Deposits
-              </span>
-
-              {pendingDeposits.length >
-                0 && (
-                <small>
-                  {pendingDeposits.length}
-                </small>
-              )}
-            </button>
-
-            <button
-              type="button"
-              className={
-                activeSection ===
+          <button
+            className={
+              activeSection ===
+              "withdrawals"
+                ? "admin-nav-button active"
+                : "admin-nav-button"
+            }
+            onClick={() =>
+              setActiveSection(
                 "withdrawals"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                changeSection(
-                  "withdrawals"
-                )
-              }
-            >
-              <span>
-                Withdrawals
+              )
+            }
+          >
+            Withdrawals
+            {pendingWithdrawals.length >
+              0 && (
+              <span className="admin-count">
+                {
+                  pendingWithdrawals.length
+                }
               </span>
+            )}
+          </button>
 
-              {pendingWithdrawals.length >
-                0 && (
-                <small>
-                  {pendingWithdrawals.length}
-                </small>
-              )}
-            </button>
-
-            <button
-              type="button"
-              className={
-                activeSection ===
+          <button
+            className={
+              activeSection ===
+              "investments"
+                ? "admin-nav-button active"
+                : "admin-nav-button"
+            }
+            onClick={() =>
+              setActiveSection(
                 "investments"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                changeSection(
-                  "investments"
-                )
-              }
-            >
-              <span>
-                Investments
-              </span>
-            </button>
+              )
+            }
+          >
+            Investments
+          </button>
 
-            <button
-              type="button"
-              className={
-                activeSection ===
+          <button
+            className={
+              activeSection ===
+              "referrals"
+                ? "admin-nav-button active"
+                : "admin-nav-button"
+            }
+            onClick={() =>
+              setActiveSection(
                 "referrals"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                changeSection(
-                  "referrals"
-                )
-              }
-            >
-              <span>
-                Referrals
-              </span>
-            </button>
-          </nav>
+              )
+            }
+          >
+            Referrals
+          </button>
 
-          <div className="admin-sidebar-bottom">
-            <Link
-              to="/dashboard"
-              className="admin-sidebar-link"
-            >
-              User Dashboard
-            </Link>
+          <div className="admin-sidebar-divider" />
 
-            <button
-              type="button"
-              onClick={
-                handleLogout
-              }
-            >
-              Logout
-            </button>
-          </div>
+          <Link
+            to="/"
+            className="admin-nav-link"
+          >
+            Main Website
+          </Link>
         </aside>
 
-        {/* ======================================================
-            MAIN CONTENT
-        ====================================================== */}
-
-        <section className="admin-content">
-          {/* ====================================================
-              HEADER
-          ==================================================== */}
-
-          <header className="admin-header">
-            <div>
-              <p className="dashboard-eyebrow">
-                XS COMPANY LIMITED
-              </p>
-
-              <h1>
-                Admin Dashboard
-              </h1>
-
-              <p className="admin-header-subtitle">
-                Manage users, investments,
-                deposits, withdrawals and
-                referrals.
-              </p>
-            </div>
-
-            <div className="admin-header-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={
-                  handleRefresh
-                }
-                disabled={loading}
-              >
-                {loading
-                  ? "Refreshing..."
-                  : "Refresh"}
-              </button>
-            </div>
-          </header>
-
-          {/* ====================================================
-              GLOBAL MESSAGES
-          ==================================================== */}
-
+        <main className="admin-main">
           {message && (
-            <div className="admin-success">
+            <div className="admin-success-message">
               {message}
             </div>
           )}
 
           {error && (
-            <div className="admin-error">
+            <div className="admin-error-message">
               {error}
             </div>
           )}
 
-          {/* ====================================================
-              WITHDRAWAL PORTAL CONTROL
-          ==================================================== */}
-
-          <section className="admin-withdrawal-control">
-            <div>
-              <p className="dashboard-eyebrow">
-                WITHDRAWAL CONTROL
-              </p>
-
-              <h2>
-                Withdrawal Portal
-              </h2>
-
-              <p>
-                Control whether users are
-                currently allowed to submit
-                new withdrawal requests.
-              </p>
-            </div>
-
-            <div className="admin-withdrawal-control-right">
-              <div
-                className={
-                  withdrawalPortalLocked
-                    ? "portal-status locked"
-                    : "portal-status open"
-                }
-              >
-                <span
-                  className="portal-status-dot"
-                />
-
-                <strong>
-                  {withdrawalPortalLocked
-                    ? "LOCKED"
-                    : "OPEN"}
-                </strong>
-              </div>
-
-              <button
-                type="button"
-                className={
-                  withdrawalPortalLocked
-                    ? "primary-button"
-                    : "danger-button"
-                }
-                onClick={
-                  toggleWithdrawalPortal
-                }
-                disabled={
-                  withdrawalPortalLoading
-                }
-              >
-                {withdrawalPortalLoading
-                  ? "Updating..."
-                  : withdrawalPortalLocked
-                  ? "Unlock Withdrawals"
-                  : "Lock Withdrawals"}
-              </button>
-            </div>
-          </section>
-
-          {/* ====================================================
-              OVERVIEW
-          ==================================================== */}
-
           {activeSection ===
             "overview" && (
-            <>
-              <section className="admin-stats-grid">
+            <section>
+              <div className="admin-section-heading">
+                <div>
+                  <h2>
+                    Dashboard Overview
+                  </h2>
+
+                  <p>
+                    Monitor the XS platform.
+                  </p>
+                </div>
+              </div>
+
+              <div className="admin-stat-grid">
                 <div className="admin-stat-card">
                   <span>
                     Total Users
                   </span>
 
                   <strong>
-                    {totalUsers}
+                    {users.length}
                   </strong>
-
-                  <small>
-                    Registered accounts
-                  </small>
-                </div>
-
-                <div className="admin-stat-card">
-                  <span>
-                    Total Deposited
-                  </span>
-
-                  <strong>
-                    {formatMoney(
-                      totalDeposits
-                    )}
-                  </strong>
-
-                  <small>
-                    Approved deposits
-                  </small>
-                </div>
-
-                <div className="admin-stat-card">
-                  <span>
-                    Total Withdrawn
-                  </span>
-
-                  <strong>
-                    {formatMoney(
-                      totalWithdrawals
-                    )}
-                  </strong>
-
-                  <small>
-                    Completed payments
-                  </small>
                 </div>
 
                 <div className="admin-stat-card">
@@ -2330,10 +1645,30 @@ export default function Admin() {
                       activeInvestments.length
                     }
                   </strong>
+                </div>
 
-                  <small>
-                    Currently active
-                  </small>
+                <div className="admin-stat-card">
+                  <span>
+                    Approved Deposits
+                  </span>
+
+                  <strong>
+                    {formatMoney(
+                      totalDeposited
+                    )}
+                  </strong>
+                </div>
+
+                <div className="admin-stat-card">
+                  <span>
+                    Paid Withdrawals
+                  </span>
+
+                  <strong>
+                    {formatMoney(
+                      totalPaidWithdrawals
+                    )}
+                  </strong>
                 </div>
 
                 <div className="admin-stat-card">
@@ -2346,10 +1681,6 @@ export default function Admin() {
                       pendingDeposits.length
                     }
                   </strong>
-
-                  <small>
-                    Awaiting approval
-                  </small>
                 </div>
 
                 <div className="admin-stat-card">
@@ -2362,1147 +1693,1008 @@ export default function Admin() {
                       pendingWithdrawals.length
                     }
                   </strong>
-
-                  <small>
-                    Awaiting payment
-                  </small>
-                </div>
-              </section>
-
-              {/* ================================================
-                  QUICK ACTIONS
-              ================================================= */}
-
-              <section className="admin-panel">
-                <div className="admin-panel-header">
-                  <div>
-                    <p className="dashboard-eyebrow">
-                      QUICK ACTIONS
-                    </p>
-
-                    <h2>
-                      Manage XS
-                    </h2>
-                  </div>
-                </div>
-
-                <div className="admin-quick-actions">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      changeSection(
-                        "deposits"
-                      )
-                    }
-                  >
-                    <strong>
-                      Review Deposits
-                    </strong>
-
-                    <span>
-                      {
-                        pendingDeposits.length
-                      }{" "}
-                      pending
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      changeSection(
-                        "withdrawals"
-                      )
-                    }
-                  >
-                    <strong>
-                      Review Withdrawals
-                    </strong>
-
-                    <span>
-                      {
-                        pendingWithdrawals.length
-                      }{" "}
-                      pending
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      changeSection(
-                        "users"
-                      )
-                    }
-                  >
-                    <strong>
-                      View Users
-                    </strong>
-
-                    <span>
-                      {totalUsers} users
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      changeSection(
-                        "investments"
-                      )
-                    }
-                  >
-                    <strong>
-                      View Investments
-                    </strong>
-
-                    <span>
-                      {
-                        activeInvestments.length
-                      }{" "}
-                      active
-                    </span>
-                  </button>
-                </div>
-              </section>
-
-              {/* ================================================
-                  PENDING DEPOSITS PREVIEW
-              ================================================= */}
-
-              <section className="admin-panel">
-                <div className="admin-panel-header">
-                  <div>
-                    <h2>
-                      Pending Deposits
-                    </h2>
-
-                    <p>
-                      Deposits waiting for
-                      administrator approval.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() =>
-                      changeSection(
-                        "deposits"
-                      )
-                    }
-                  >
-                    View All
-                  </button>
-                </div>
-
-                {pendingDeposits.length ===
-                0 ? (
-                  <div className="admin-empty-state">
-                    There are no pending
-                    deposits.
-                  </div>
-                ) : (
-                  <div className="admin-table-wrapper">
-                    <table className="admin-table">
-                      <thead>
-                        <tr>
-                          <th>
-                            User
-                          </th>
-
-                          <th>
-                            Sender Name
-                          </th>
-
-                          <th>
-                            Amount
-                          </th>
-
-                          <th>
-                            Date
-                          </th>
-
-                          <th>
-                            Action
-                          </th>
-                        </tr>
-                      </thead>
-
-                      <tbody>
-                        {pendingDeposits
-                          .slice(0, 5)
-                          .map(
-                            (
-                              deposit
-                            ) => (
-                              <tr
-                                key={
-                                  deposit.id
-                                }
-                              >
-                                <td>
-                                  {deposit.userId ||
-                                    "—"}
-                                </td>
-
-                                <td>
-                                  {deposit.senderName ||
-                                    "—"}
-                                </td>
-
-                                <td>
-                                  <strong>
-                                    {formatMoney(
-                                      deposit.amount
-                                    )}
-                                  </strong>
-                                </td>
-
-                                <td>
-                                  {formatDate(
-                                    deposit.createdAt
-                                  )}
-                                </td>
-
-                                <td>
-                                  <div className="admin-action-group">
-                                    <button
-                                      type="button"
-                                      className="success-button"
-                                      onClick={() =>
-                                        approveDeposit(
-                                          deposit
-                                        )
-                                      }
-                                      disabled={
-                                        processingId ===
-                                        deposit.id
-                                      }
-                                    >
-                                      {processingId ===
-                                      deposit.id
-                                        ? "Processing..."
-                                        : "Approve"}
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      className="danger-button"
-                                      onClick={() =>
-                                        rejectDeposit(
-                                          deposit
-                                        )
-                                      }
-                                      disabled={
-                                        processingId ===
-                                        deposit.id
-                                      }
-                                    >
-                                      Reject
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          )}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-
-              {/* ================================================
-                  PENDING WITHDRAWALS PREVIEW
-              ================================================= */}
-
-              <section className="admin-panel">
-                <div className="admin-panel-header">
-                  <div>
-                    <h2>
-                      Pending Withdrawals
-                    </h2>
-
-                    <p>
-                      Withdrawal requests
-                      awaiting payment.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() =>
-                      changeSection(
-                        "withdrawals"
-                      )
-                    }
-                  >
-                    View All
-                  </button>
-                </div>
-
-                {pendingWithdrawals.length ===
-                0 ? (
-                  <div className="admin-empty-state">
-                    There are no pending
-                    withdrawals.
-                  </div>
-                ) : (
-                  <div className="admin-table-wrapper">
-                    <table className="admin-table">
-                      <thead>
-                        <tr>
-                          <th>
-                            User
-                          </th>
-
-                          <th>
-                            Amount
-                          </th>
-
-                          <th>
-                                      <th>
-                            Bank
-                          </th>
-
-                          <th>
-                            Account
-                          </th>
-
-                          <th>
-                            Action
-                          </th>
-                        </tr>
-                      </thead>
-
-                      <tbody>
-                        {pendingWithdrawals
-                          .slice(0, 5)
-                          .map(
-                            (
-                              withdrawal
-                            ) => (
-                              <tr
-                                key={
-                                  withdrawal.id
-                                }
-                              >
-                                <td>
-                                  <strong>
-                                    {withdrawal.userFullName ||
-                                      "Unknown User"}
-                                  </strong>
-
-                                  <small>
-                                    {withdrawal.userEmail ||
-                                      "—"}
-                                  </small>
-                                </td>
-
-                                <td>
-                                  <strong>
-                                    {formatMoney(
-                                      withdrawal.amount
-                                    )}
-                                  </strong>
-                                </td>
-
-                                <td>
-                                  {withdrawal.bankName ||
-                                    "—"}
-                                </td>
-
-                                <td>
-                                  <strong>
-                                    {withdrawal.accountNumber ||
-                                      "—"}
-                                  </strong>
-
-                                  <small>
-                                    {withdrawal.accountHolderName ||
-                                      "—"}
-                                  </small>
-                                </td>
-
-                                <td>
-                                  <div className="admin-action-group">
-                                    <button
-                                      type="button"
-                                      className="success-button"
-                                      onClick={() =>
-                                        processWithdrawal(
-                                          withdrawal
-                                        )
-                                      }
-                                      disabled={
-                                        processingId ===
-                                        withdrawal.id
-                                      }
-                                    >
-                                      {processingId ===
-                                      withdrawal.id
-                                        ? "Processing..."
-                                        : "Mark Paid"}
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      className="danger-button"
-                                      onClick={() =>
-                                        rejectWithdrawal(
-                                          withdrawal
-                                        )
-                                      }
-                                      disabled={
-                                        processingId ===
-                                        withdrawal.id
-                                      }
-                                    >
-                                      Reject
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          )}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-            </>
-          )}
-
-          {/* ====================================================
-              USERS
-          ==================================================== */}
-
-          {activeSection ===
-            "users" && (
-            <section className="admin-panel">
-              <div className="admin-panel-header">
-                <div>
-                  <p className="dashboard-eyebrow">
-                    USER MANAGEMENT
-                  </p>
-
-                  <h2>
-                    All Users
-                  </h2>
-
-                  <p>
-                    View user accounts,
-                    balances, investments and
-                    referral information.
-                  </p>
-                </div>
-
-                <div className="admin-search">
-                  <input
-                    type="search"
-                    value={userSearch}
-                    onChange={(event) =>
-                      setUserSearch(
-                        event.target.value
-                      )
-                    }
-                    placeholder="Search name, email, phone or referral code..."
-                  />
                 </div>
               </div>
 
-              {filteredUsers.length ===
-              0 ? (
-                <div className="admin-empty-state">
-                  No users match your
-                  search.
-                </div>
-              ) : (
-                <div className="admin-table-wrapper">
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>
-                          User
-                        </th>
+              <div className="admin-card">
+                <div className="admin-card-header">
+                  <div>
+                    <h3>
+                      Withdrawal Portal
+                    </h3>
 
-                        <th>
-                          Balance
-                        </th>
+                    <p>
+                      Control whether users
+                      can submit new
+                      withdrawal requests.
+                    </p>
+                  </div>
 
-                        <th>
-                          Deposited
-                        </th>
-
-                        <th>
-                          Referrals
-                        </th>
-
-                        <th>
-                          Investment
-                        </th>
-
-                        <th>
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {filteredUsers.map(
-                        (user) => {
-                          const investment =
-                            getUserInvestment(
-                              user.id
-                            );
-
-                          return (
-                            <tr
-                              key={
-                                user.id
-                              }
-                            >
-                              <td>
-                                <strong>
-                                  {user.fullName ||
-                                    "Unnamed User"}
-                                </strong>
-
-                                <small>
-                                  {user.email ||
-                                    "No email"}
-                                </small>
-                              </td>
-
-                              <td>
-                                {formatMoney(
-                                  user.availableBalance ??
-                                    user.balance
-                                )}
-                              </td>
-
-                              <td>
-                                {formatMoney(
-                                  getUserTotalDeposited(
-                                    user.id
-                                  )
-                                )}
-                              </td>
-
-                              <td>
-                                {user.referralCount ??
-                                  user.referredUsersCount ??
-                                  0}
-                              </td>
-
-                              <td>
-                                <span
-                                  className={`status-badge ${getStatusClass(
-                                    investment?.status
-                                  )}`}
-                                >
-                                  {investment?.status ||
-                                    "None"}
-                                </span>
-                              </td>
-
-                              <td>
-                                <button
-                                  type="button"
-                                  className="secondary-button"
-                                  onClick={() =>
-                                    openUser(
-                                      user
-                                    )
-                                  }
-                                >
-                                  View
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        }
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          )}
-
-          {/* ====================================================
-              DEPOSITS
-          ==================================================== */}
-
-          {activeSection ===
-            "deposits" && (
-            <section className="admin-panel">
-              <div className="admin-panel-header">
-                <div>
-                  <p className="dashboard-eyebrow">
-                    DEPOSIT MANAGEMENT
-                  </p>
-
-                  <h2>
-                    Deposits
-                  </h2>
-
-                  <p>
-                    Review and process user
-                    investment deposits.
-                  </p>
-                </div>
-              </div>
-
-              {deposits.length ===
-              0 ? (
-                <div className="admin-empty-state">
-                  No deposits found.
-                </div>
-              ) : (
-                <div className="admin-table-wrapper">
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>
-                          Date
-                        </th>
-
-                        <th>
-                          User
-                        </th>
-
-                        <th>
-                          Sender Name
-                        </th>
-
-                        <th>
-                          Amount
-                        </th>
-
-                        <th>
-                          Type
-                        </th>
-
-                        <th>
-                          Status
-                        </th>
-
-                        <th>
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {deposits.map(
-                        (deposit) => {
-                          const status =
-                            normalizeStatus(
-                              deposit.status
-                            );
-
-                          const isPending =
-                            status ===
-                            "pending";
-
-                          return (
-                            <tr
-                              key={
-                                deposit.id
-                              }
-                            >
-                              <td>
-                                {formatDate(
-                                  deposit.createdAt
-                                )}
-                              </td>
-
-                              <td>
-                                <strong>
-                                  {deposit.userId ||
-                                    "—"}
-                                </strong>
-                              </td>
-
-                              <td>
-                                {deposit.senderName ||
-                                  "—"}
-                              </td>
-
-                              <td>
-                                <strong>
-                                  {formatMoney(
-                                    deposit.amount
-                                  )}
-                                </strong>
-                              </td>
-
-                              <td>
-                                {deposit.type ||
-                                  "investment"}
-                              </td>
-
-                              <td>
-                                <span
-                                  className={`status-badge ${getStatusClass(
-                                    deposit.status
-                                  )}`}
-                                >
-                                  {deposit.status ||
-                                    "—"}
-                                </span>
-                              </td>
-
-                              <td>
-                                {isPending ? (
-                                  <div className="admin-action-group">
-                                    <button
-                                      type="button"
-                                      className="success-button"
-                                      onClick={() =>
-                                        approveDeposit(
-                                          deposit
-                                        )
-                                      }
-                                      disabled={
-                                        processingId ===
-                                        deposit.id
-                                      }
-                                    >
-                                      {processingId ===
-                                      deposit.id
-                                        ? "Processing..."
-                                        : "Approve"}
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      className="danger-button"
-                                      onClick={() =>
-                                        rejectDeposit(
-                                          deposit
-                                        )
-                                      }
-                                      disabled={
-                                        processingId ===
-                                        deposit.id
-                                      }
-                                    >
-                                      Reject
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <span>
-                                    —
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        }
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          )}
-
-          {/* ====================================================
-              WITHDRAWALS
-          ==================================================== */}
-
-          {activeSection ===
-            "withdrawals" && (
-            <section className="admin-panel">
-              <div className="admin-panel-header">
-                <div>
-                  <p className="dashboard-eyebrow">
-                    WITHDRAWAL MANAGEMENT
-                  </p>
-
-                  <h2>
-                    Withdrawals
-                  </h2>
-
-                  <p>
-                    Review, pay or reject
-                    withdrawal requests.
-                  </p>
+                  <span
+                    className={getStatusClass(
+                      withdrawalPortalLocked
+                        ? "inactive"
+                        : "active"
+                    )}
+                  >
+                    {withdrawalPortalLocked
+                      ? "LOCKED"
+                      : "OPEN"}
+                  </span>
                 </div>
 
-                <div
+                <button
+                  type="button"
+                  onClick={
+                    toggleWithdrawalPortal
+                  }
+                  disabled={
+                    withdrawalPortalLoading
+                  }
                   className={
                     withdrawalPortalLocked
-                      ? "portal-status locked"
-                      : "portal-status open"
+                      ? "admin-primary-button"
+                      : "admin-danger-button"
                   }
                 >
-                  <span className="portal-status-dot" />
-
-                  <strong>
-                    Portal{" "}
-                    {withdrawalPortalLocked
-                      ? "Locked"
-                      : "Open"}
-                  </strong>
-                </div>
+                  {withdrawalPortalLoading
+                    ? "Updating..."
+                    : withdrawalPortalLocked
+                    ? "Unlock Withdrawal Portal"
+                    : "Lock Withdrawal Portal"}
+                </button>
               </div>
 
-              {withdrawals.length ===
-              0 ? (
-                <div className="admin-empty-state">
-                  No withdrawal requests
-                  found.
-                </div>
-              ) : (
-                <div className="admin-table-wrapper">
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>
-                          Date
-                        </th>
+              <div className="admin-card">
+                <h3>
+                  Current Investment
+                  Settings
+                </h3>
 
-                        <th>
-                          User
-                        </th>
+                <div className="admin-info-grid">
+                  <div>
+                    <span>
+                      Minimum Deposit
+                    </span>
 
-                        <th>
-                          Amount
-                        </th>
-
-                        <th>
-                          Bank
-                        </th>
-
-                        <th>
-                          Account
-                        </th>
-
-                        <th>
-                          Status
-                        </th>
-
-                        <th>
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {withdrawals.map(
-                        (
-                          withdrawal
-                        ) => {
-                          const isPending =
-                            String(
-                              withdrawal.status ||
-                                ""
-                            ).toUpperCase() ===
-                            "PENDING";
-
-                          return (
-                            <tr
-                              key={
-                                withdrawal.id
-                              }
-                            >
-                              <td>
-                                {formatDate(
-                                  withdrawal.createdAt
-                                )}
-                              </td>
-
-                              <td>
-                                <strong>
-                                  {withdrawal.userFullName ||
-                                    "Unknown User"}
-                                </strong>
-
-                                <small>
-                                  {withdrawal.userEmail ||
-                                    "—"}
-                                </small>
-                              </td>
-
-                              <td>
-                                <strong>
-                                  {formatMoney(
-                                    withdrawal.amount
-                                  )}
-                                </strong>
-                              </td>
-
-                              <td>
-                                {withdrawal.bankName ||
-                                  "—"}
-                              </td>
-
-                              <td>
-                                <strong>
-                                  {withdrawal.accountNumber ||
-                                    "—"}
-                                </strong>
-
-                                <small>
-                                  {withdrawal.accountHolderName ||
-                                                                      "—"}
-                                </small>
-                              </td>
-
-                              <td>
-                                <span
-                                  className={`status-badge ${getStatusClass(
-                                    withdrawal.status
-                                  )}`}
-                                >
-                                  {withdrawal.status ||
-                                    "—"}
-                                </span>
-                              </td>
-
-                              <td>
-                                {isPending ? (
-                                  <div className="admin-action-group">
-                                    <button
-                                      type="button"
-                                      className="success-button"
-                                      onClick={() =>
-                                        processWithdrawal(
-                                          withdrawal
-                                        )
-                                      }
-                                      disabled={
-                                        processingId ===
-                                        withdrawal.id
-                                      }
-                                    >
-                                      {processingId ===
-                                      withdrawal.id
-                                        ? "Processing..."
-                                        : "Mark Paid"}
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      className="danger-button"
-                                      onClick={() =>
-                                        rejectWithdrawal(
-                                          withdrawal
-                                        )
-                                      }
-                                      disabled={
-                                        processingId ===
-                                        withdrawal.id
-                                      }
-                                    >
-                                      Reject
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <div>
-                                    {withdrawal.paymentReference && (
-                                      <small>
-                                        Ref:{" "}
-                                        {
-                                          withdrawal.paymentReference
-                                        }
-                                      </small>
-                                    )}
-
-                                    {withdrawal.rejectionReason && (
-                                      <small>
-                                        Reason:{" "}
-                                        {
-                                          withdrawal.rejectionReason
-                                        }
-                                      </small>
-                                    )}
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        }
+                    <strong>
+                      {formatMoney(
+                        MINIMUM_DEPOSIT
                       )}
-                    </tbody>
-                  </table>
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Minimum Withdrawal
+                    </span>
+
+                    <strong>
+                      {formatMoney(
+                        MINIMUM_WITHDRAWAL
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Daily Return
+                    </span>
+
+                    <strong>
+                      {formatMoney(
+                        DAILY_RETURN
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Cycle
+                    </span>
+
+                    <strong>
+                      {CYCLE_DAYS} days
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Cycle Return
+                    </span>
+
+                    <strong>
+                      {formatMoney(
+                        CYCLE_TOTAL_RETURN
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Recorded Returns
+                    </span>
+
+                    <strong>
+                      {formatMoney(
+                        totalInvestmentReturns
+                      )}
+                    </strong>
+                  </div>
                 </div>
-              )}
+              </div>
             </section>
-          )}
-
-          {/* ====================================================
-              INVESTMENTS
-          ==================================================== */}
-
-          {activeSection ===
-            "investments" && (
-            <section className="admin-panel">
-              <div className="admin-panel-header">
+          )}          {activeSection ===
+            "users" && (
+            <section>
+              <div className="admin-section-heading">
                 <div>
-                  <p className="dashboard-eyebrow">
-                    INVESTMENT MANAGEMENT
-                  </p>
-
                   <h2>
-                    Investments
+                    Users
                   </h2>
 
                   <p>
-                    View all user investment
-                    records and return
+                    View registered XS
+                    users and their account
                     information.
                   </p>
                 </div>
               </div>
 
-              {investments.length ===
-              0 ? (
-                <div className="admin-empty-state">
-                  No investment records
-                  found.
-                </div>
-              ) : (
-                <div className="admin-table-wrapper">
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>
-                          User
-                        </th>
+              <div className="admin-search-box">
+                <input
+                  value={userSearch}
+                  onChange={(event) =>
+                    setUserSearch(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Search name, email, phone, referral code or user ID..."
+                />
+              </div>
 
-                        <th>
-                          Principal
-                        </th>
+              <div className="admin-table-wrapper">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>
+                        User
+                      </th>
 
-                        <th>
-                          Daily Return
-                        </th>
+                      <th>
+                        Email
+                      </th>
 
-                        <th>
-                          Total Returns
-                        </th>
+                      <th>
+                        Balance
+                      </th>
 
-                        <th>
-                          Processed
-                        </th>
+                      <th>
+                        Referrals
+                      </th>
 
-                        <th>
-                          Status
-                        </th>
+                      <th>
+                        Investment
+                      </th>
 
-                        <th>
-                          Next Return
-                        </th>
-                      </tr>
-                    </thead>
+                      <th>
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
 
-                    <tbody>
-                      {investments.map(
-                        (
-                          investment
-                        ) => {
-                          const user =
-                            users.find(
-                              (item) =>
-                                item.id ===
-                                (
-                                  investment.userId ||
-                                  investment.id
+                  <tbody>
+                    {filteredUsers.map(
+                      (user) => (
+                        <tr
+                          key={
+                            user.id
+                          }
+                        >
+                          <td>
+                            <strong>
+                              {user.fullName ||
+                                "Unnamed User"}
+                            </strong>
+
+                            <small>
+                              {user.id}
+                            </small>
+                          </td>
+
+                          <td>
+                            {user.email ||
+                              "—"}
+                          </td>
+
+                          <td>
+                            {formatMoney(
+                              user.balance
+                            )}
+                          </td>
+
+                          <td>
+                            {Number(
+                              user.referralCount ||
+                                user.referredUsersCount ||
+                                0
+                            )}
+                          </td>
+
+                          <td>
+                            <span
+                              className={getStatusClass(
+                                user.investmentStatus
+                              )}
+                            >
+                              {user.investmentStatus ||
+                                "—"}
+                            </span>
+                          </td>
+
+                          <td>
+                            <button
+                              type="button"
+                              className="admin-small-button"
+                              onClick={() =>
+                                setSelectedUser(
+                                  user
                                 )
-                            );
-
-                          return (
-                            <tr
-                              key={
-                                investment.id
                               }
                             >
-                              <td>
-                                <strong>
-                                  {user?.fullName ||
-                                    investment.userId ||
-                                    investment.id}
-                                </strong>
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    )}
+                  </tbody>
+                </table>
 
-                                <small>
-                                  {user?.email ||
-                                    investment.userId ||
-                                    investment.id}
-                                </small>
-                              </td>
+                {filteredUsers.length ===
+                  0 && (
+                  <div className="admin-empty">
+                    No users found.
+                  </div>
+                )}
+              </div>
 
-                              <td>
-                                {formatMoney(
-                                  investment.principalAmount ??
-                                    investment.investmentAmount
-                                )}
-                              </td>
+              {selectedUser && (
+                <div className="admin-modal-overlay">
+                  <div className="admin-modal">
+                    <div className="admin-modal-header">
+                      <div>
+                        <h3>
+                          User Details
+                        </h3>
 
-                              <td>
-                                {formatMoney(
-                                  investment.dailyReturn ??
-                                    DAILY_RETURN
-                                )}
-                              </td>
+                        <p>
+                          {
+                            selectedUser.fullName
+                          }
+                        </p>
+                      </div>
 
-                              <td>
-                                {formatMoney(
-                                  investment.totalReturns
-                                )}
-                              </td>
-
-                              <td>
-                                {investment.returnsProcessed ??
-                                  0}
-                              </td>
-
-                              <td>
-                                <span
-                                  className={`status-badge ${getStatusClass(
-                                    investment.status
-                                  )}`}
-                                >
-                                  {investment.status ||
-                                    "—"}
-                                </span>
-                              </td>
-
-                              <td>
-                                {formatDate(
-                                  investment.nextReturnAt
-                                )}
-                              </td>
-                            </tr>
-                          );
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedUser(
+                            null
+                          )
                         }
-                      )}
-                    </tbody>
-                  </table>
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <div className="admin-detail-list">
+                      <div>
+                        <span>
+                          User ID
+                        </span>
+
+                        <strong>
+                          {
+                            selectedUser.id
+                          }
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Full Name
+                        </span>
+
+                        <strong>
+                          {selectedUser.fullName ||
+                            "—"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Email
+                        </span>
+
+                        <strong>
+                          {selectedUser.email ||
+                            "—"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Phone
+                        </span>
+
+                        <strong>
+                          {selectedUser.phone ||
+                            "—"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Balance
+                        </span>
+
+                        <strong>
+                          {formatMoney(
+                            selectedUser.balance
+                          )}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Available Balance
+                        </span>
+
+                        <strong>
+                          {formatMoney(
+                            selectedUser.availableBalance
+                          )}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Referral Code
+                        </span>
+
+                        <strong>
+                          {selectedUser.referralCode ||
+                            "—"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Referred By
+                        </span>
+
+                        <strong>
+                          {selectedUser.referredBy ||
+                            "—"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Referral Earnings
+                        </span>
+
+                        <strong>
+                          {formatMoney(
+                            selectedUser.referralEarnings
+                          )}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Qualified Referrals
+                        </span>
+
+                        <strong>
+                          {Number(
+                            selectedUser.qualifiedReferrals ||
+                              0
+                          )}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>
+                          Registration Date
+                        </span>
+
+                        <strong>
+                          {formatDate(
+                            selectedUser.createdAt
+                          )}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="admin-secondary-button"
+                      onClick={() =>
+                        setSelectedUser(
+                          null
+                        )
+                      }
+                    >
+                      Close
+                    </button>
+                  </div>
                 </div>
               )}
             </section>
           )}
 
-          {/* ====================================================
-              REFERRALS
-          ==================================================== */}
+          {activeSection ===
+            "deposits" && (
+            <section>
+              <div className="admin-section-heading">
+                <div>
+                  <h2>
+                    Deposit Requests
+                  </h2>
+
+                  <p>
+                    Review and approve or
+                    reject investment
+                    deposits.
+                  </p>
+                </div>
+              </div>
+
+              <div className="admin-table-wrapper">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>
+                        User
+                      </th>
+
+                      <th>
+                        Sender Name
+                      </th>
+
+                      <th>
+                        Amount
+                      </th>
+
+                      <th>
+                        Type
+                      </th>
+
+                      <th>
+                        Status
+                      </th>
+
+                      <th>
+                        Created
+                      </th>
+
+                      <th>
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {deposits.map(
+                      (deposit) => (
+                        <tr
+                          key={
+                            deposit.id
+                          }
+                        >
+                          <td>
+                            {getUserById(
+                              deposit.userId
+                            )?.fullName ||
+                              deposit.userId ||
+                              "—"}
+                          </td>
+
+                          <td>
+                            {deposit.senderName ||
+                              "—"}
+                          </td>
+
+                          <td>
+                            {formatMoney(
+                              deposit.amount
+                            )}
+                          </td>
+
+                          <td>
+                            {deposit.type ||
+                              "investment"}
+                          </td>
+
+                          <td>
+                            <span
+                              className={getStatusClass(
+                                deposit.status
+                              )}
+                            >
+                              {deposit.status ||
+                                "pending"}
+                            </span>
+                          </td>
+
+                          <td>
+                            {formatDate(
+                              deposit.createdAt
+                            )}
+                          </td>
+
+                          <td>
+                            {normalizeStatus(
+                              deposit.status
+                            ) ===
+                              "pending" && (
+                              <div className="admin-action-group">
+                                <button
+                                  type="button"
+                                  className="admin-small-button success"
+                                  disabled={
+                                    processingId ===
+                                    deposit.id
+                                  }
+                                  onClick={() =>
+                                    approveDeposit(
+                                      deposit
+                                    )
+                                  }
+                                >
+                                  {processingId ===
+                                  deposit.id
+                                    ? "..."
+                                    : "Approve"}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="admin-small-button danger"
+                                  disabled={
+                                    processingId ===
+                                    deposit.id
+                                  }
+                                  onClick={() =>
+                                    rejectDeposit(
+                                      deposit
+                                    )
+                                  }
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            )}
+
+                            {normalizeStatus(
+                              deposit.status
+                            ) !==
+                              "pending" && (
+                              <span>
+                                Processed
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    )}
+                  </tbody>
+                </table>
+
+                {deposits.length ===
+                  0 && (
+                  <div className="admin-empty">
+                    No deposit requests
+                    found.
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {activeSection ===
+            "withdrawals" && (
+            <section>
+              <div className="admin-section-heading">
+                <div>
+                  <h2>
+                    Withdrawal Requests
+                  </h2>
+
+                  <p>
+                    Review withdrawal
+                    requests and mark
+                    completed payments.
+                  </p>
+                </div>
+
+                <span
+                  className={getStatusClass(
+                    withdrawalPortalLocked
+                      ? "inactive"
+                      : "active"
+                  )}
+                >
+                  Portal:{" "}
+                  {withdrawalPortalLocked
+                    ? "LOCKED"
+                    : "OPEN"}
+                </span>
+              </div>
+
+              <div className="admin-table-wrapper">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>
+                        User
+                      </th>
+
+                      <th>
+                        Amount
+                      </th>
+
+                      <th>
+                        Bank
+                      </th>
+
+                      <th>
+                        Account
+                      </th>
+
+                      <th>
+                        Holder
+                      </th>
+
+                      <th>
+                        Status
+                      </th>
+
+                      <th>
+                        Created
+                      </th>
+
+                      <th>
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {withdrawals.map(
+                      (
+                        withdrawal
+                      ) => (
+                        <tr
+                          key={
+                            withdrawal.id
+                          }
+                        >
+                          <td>
+                            <strong>
+                              {withdrawal.userFullName ||
+                                getUserById(
+                                  withdrawal.userId
+                                )?.fullName ||
+                                "—"}
+                            </strong>
+
+                            <small>
+                              {withdrawal.userEmail ||
+                                ""}
+                            </small>
+                          </td>
+
+                          <td>
+                            {formatMoney(
+                              withdrawal.amount
+                            )}
+                          </td>
+
+                          <td>
+                            {withdrawal.bankName ||
+                              "—"}
+                          </td>
+
+                          <td>
+                            {withdrawal.accountNumber ||
+                              "—"}
+                          </td>
+
+                          <td>
+                            {withdrawal.accountHolderName ||
+                              "—"}
+                          </td>
+
+                          <td>
+                            <span
+                              className={getStatusClass(
+                                withdrawal.status
+                              )}
+                            >
+                              {withdrawal.status ||
+                                "PENDING"}
+                            </span>
+                          </td>
+
+                          <td>
+                            {formatDate(
+                              withdrawal.createdAt
+                            )}
+                          </td>
+
+                          <td>
+                            {normalizeStatus(
+                              withdrawal.status
+                            ) ===
+                              "pending" && (
+                              <div className="admin-action-group">
+                                <button
+                                  type="button"
+                                  className="admin-small-button success"
+                                  disabled={
+                                    processingId ===
+                                    withdrawal.id
+                                  }
+                                  onClick={() =>
+                                    approveWithdrawal(
+                                      withdrawal
+                                    )
+                                  }
+                                >
+                                  {processingId ===
+                                  withdrawal.id
+                                    ? "..."
+                                    : "Mark Paid"}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="admin-small-button danger"
+                                  disabled={
+                                    processingId ===
+                                    withdrawal.id
+                                  }
+                                  onClick={() =>
+                                    rejectWithdrawal(
+                                      withdrawal
+                                  )
+                                  }
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            )}
+
+                            {normalizeStatus(
+                              withdrawal.status
+                            ) ===
+                              "paid" && (
+                              <span>
+                                Payment Sent
+                              </span>
+                            )}
+
+                            {normalizeStatus(
+                              withdrawal.status
+                            ) ===
+                              "rejected" && (
+                              <span>
+                                Rejected
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    )}
+                  </tbody>
+                </table>
+
+                {withdrawals.length ===
+                  0 && (
+                  <div className="admin-empty">
+                    No withdrawal requests
+                    found.
+                  </div>
+                )}
+              </div>
+            </section>
+          )}          {activeSection ===
+            "investments" && (
+            <section>
+              <div className="admin-section-heading">
+                <div>
+                  <h2>
+                    Investments
+                  </h2>
+
+                  <p>
+                    Monitor active
+                    investments and
+                    processed returns.
+                  </p>
+                </div>
+              </div>
+
+              <div className="admin-table-wrapper">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>
+                        User
+                      </th>
+
+                      <th>
+                        Principal
+                      </th>
+
+                      <th>
+                        Daily Return
+                      </th>
+
+                      <th>
+                        Returns
+                      </th>
+
+                      <th>
+                        Processed
+                      </th>
+
+                      <th>
+                        Next Return
+                      </th>
+
+                      <th>
+                        Status
+                      </th>
+
+                      <th>
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {investments.map(
+                      (
+                        investment
+                      ) => {
+                        const user =
+                          getUserById(
+                            investment.userId
+                          );
+
+                        return (
+                          <tr
+                            key={
+                              investment.id
+                            }
+                          >
+                            <td>
+                              {user?.fullName ||
+                                investment.userId ||
+                                investment.id}
+                            </td>
+
+                            <td>
+                              {formatMoney(
+                                investment.principalAmount ??
+                                  investment.investmentAmount
+                              )}
+                            </td>
+
+                            <td>
+                              {formatMoney(
+                                investment.dailyReturn
+                              )}
+                            </td>
+
+                            <td>
+                              {formatMoney(
+                                investment.totalReturns
+                              )}
+                            </td>
+
+                            <td>
+                              {Number(
+                                investment.returnsProcessed ||
+                                  0
+                              )}
+                            </td>
+
+                            <td>
+                              {formatDate(
+                                investment.nextReturnAt
+                              )}
+                            </td>
+
+                            <td>
+                              <span
+                                className={getStatusClass(
+                                  investment.status
+                                )}
+                              >
+                                {investment.status ||
+                                  "—"}
+                              </span>
+                            </td>
+
+                            <td>
+                              {normalizeStatus(
+                                investment.status
+                              ) ===
+                                "active" ? (
+                                <button
+                                  type="button"
+                                  className="admin-small-button danger"
+                                  disabled={
+                                    processingId ===
+                                    investment.id
+                                  }
+                                  onClick={() =>
+                                    updateInvestmentStatus(
+                                      investment,
+                                      "INACTIVE"
+                                    )
+                                  }
+                                >
+                                  Deactivate
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="admin-small-button success"
+                                  disabled={
+                                    processingId ===
+                                    investment.id
+                                  }
+                                  onClick={() =>
+                                    updateInvestmentStatus(
+                                      investment,
+                                      "ACTIVE"
+                                    )
+                                  }
+                                >
+                                  Activate
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      }
+                    )}
+                  </tbody>
+                </table>
+
+                {investments.length ===
+                  0 && (
+                  <div className="admin-empty">
+                    No investment records
+                    found.
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
 
           {activeSection ===
             "referrals" && (
-            <section className="admin-panel">
-              <div className="admin-panel-header">
+            <section>
+              <div className="admin-section-heading">
                 <div>
-                  <p className="dashboard-eyebrow">
-                    REFERRAL MANAGEMENT
-                  </p>
-
                   <h2>
-                    Referrals
+                    Referral System
                   </h2>
 
                   <p>
@@ -3512,39 +2704,6 @@ export default function Admin() {
                   </p>
                 </div>
               </div>
-
-              <section className="admin-stats-grid">
-                <div className="admin-stat-card">
-                  <span>
-                    Total Referral Earnings
-                  </span>
-
-                  <strong>
-                    {formatMoney(
-                      totalReferralEarnings
-                    )}
-                  </strong>
-                </div>
-
-                <div className="admin-stat-card">
-                  <span>
-                    Users With Referrals
-                  </span>
-
-                  <strong>
-                    {
-                      users.filter(
-                        (user) =>
-                          Number(
-                            user.referralCount ??
-                              user.referredUsersCount ??
-                              0
-                          ) > 0
-                      ).length
-                    }
-                  </strong>
-                </div>
-              </section>
 
               <div className="admin-table-wrapper">
                 <table className="admin-table">
@@ -3571,7 +2730,7 @@ export default function Admin() {
                       </th>
 
                       <th>
-                        Referral Earnings
+                        Earnings
                       </th>
                     </tr>
                   </thead>
@@ -3592,15 +2751,13 @@ export default function Admin() {
 
                             <small>
                               {user.email ||
-                                "—"}
+                                ""}
                             </small>
                           </td>
 
                           <td>
-                            <strong>
-                              {user.referralCode ||
-                                "—"}
-                            </strong>
+                            {user.referralCode ||
+                              "—"}
                           </td>
 
                           <td>
@@ -3609,14 +2766,18 @@ export default function Admin() {
                           </td>
 
                           <td>
-                            {user.referralCount ??
-                              user.referredUsersCount ??
-                              0}
+                            {Number(
+                              user.referralCount ??
+                                user.referredUsersCount ??
+                                0
+                            )}
                           </td>
 
                           <td>
-                            {user.qualifiedReferrals ??
-                              0}
+                            {Number(
+                              user.qualifiedReferrals ||
+                                0
+                            )}
                           </td>
 
                           <td>
@@ -3629,48 +2790,27 @@ export default function Admin() {
                     )}
                   </tbody>
                 </table>
+
+                {users.length ===
+                  0 && (
+                  <div className="admin-empty">
+                    No referral data
+                    found.
+                  </div>
+                )}
               </div>
             </section>
           )}
 
-          {/* ====================================================
-              ADMIN FOOTER
-          ==================================================== */}
-
-          <footer className="admin-footer">
-            <div>
-              <strong>
-                XS Company Limited
-              </strong>
-
-              <span>
-                Admin Dashboard
-              </span>
+          {loading && (
+            <div className="admin-loading-overlay">
+              <div className="admin-loading-box">
+                Loading admin data...
+              </div>
             </div>
-
-            <span>
-              Daily return:{" "}
-              {formatMoney(
-                DAILY_RETURN
-              )}
-            </span>
-
-            <span>
-              Minimum investment:{" "}
-              {formatMoney(
-                MINIMUM_DEPOSIT
-              )}
-            </span>
-
-            <span>
-              Minimum withdrawal:{" "}
-              {formatMoney(
-                MINIMUM_WITHDRAWAL
-              )}
-            </span>
-          </footer>
-        </section>
+          )}
+        </main>
       </div>
-    </main>
+    </div>
   );
-                                }
+                              }
