@@ -17,38 +17,49 @@ import { db } from "./firebase";
  *
  * Minimum investment: ₦500
  * Daily return:       ₦200
+ * Cycle:              3 days
+ * Maximum cycle return: ₦600
  *
  * RETURN BEHAVIOUR
  *
- * The return is NOT processed by Cloud Functions.
+ * The return is processed when the user opens the
+ * Investment page.
  *
- * Instead, when the user opens the Investment page,
- * the application checks whether the next return is due.
+ * Flow:
  *
- * If the return is due:
+ * User opens Investment page
+ *          ↓
+ * Check investment
+ *          ↓
+ * Is investment ACTIVE?
+ *          ↓
+ * Is return due?
+ *          ↓
+ * Has today's return already been processed?
+ *          ↓
+ * Credit ₦200
+ *          ↓
+ * Increase totalReturns
+ *          ↓
+ * Increase returnsProcessed
+ *          ↓
+ * Save today's Nigerian date
+ *          ↓
+ * Schedule next Nigerian midnight
  *
- *     User opens Investment page
- *              ↓
- *     Return is checked
- *              ↓
- *     ₦200 is credited
- *              ↓
- *     Investment totalReturns is updated
- *              ↓
- *     lastReturnDate is recorded
- *              ↓
- *     nextReturnAt is moved to the next Nigerian midnight
+ * After 3 successful daily returns:
  *
- * DUPLICATE PROTECTION
- *
- * A user cannot receive the same day's return twice.
- *
- * Firebase Security Rules will be added later.
+ * returnsProcessed = 3
+ * totalReturns     = ₦600
+ * investment status = COMPLETED
  *
  * IMPORTANT:
- * This file contains application-side logic only.
- * Security Rules must eventually prevent unauthorized clients
- * from changing balances or investment records directly.
+ *
+ * This is application-side logic.
+ *
+ * Firestore Security Rules must prevent ordinary users
+ * from directly modifying balances, investments and
+ * return-related fields.
  */
 
 
@@ -73,20 +84,8 @@ type InvestmentData = {
 
   nextReturnAt?: unknown;
 
-  /*
-   * Nigerian calendar date on which the most recent
-   * daily return was processed.
-   *
-   * Example:
-   *
-   * "2026-10-02"
-   */
   lastReturnDate?: string;
 
-  /*
-   * Number of daily returns that have been processed
-   * for this investment.
-   */
   returnsProcessed?: number;
 };
 
@@ -113,29 +112,14 @@ type UserProfile = {
 export type ReturnProcessResult = {
   success: boolean;
 
-  /*
-   * True only when money was actually credited.
-   */
   credited: boolean;
 
-  /*
-   * Amount credited during this call.
-   */
   amountCredited: number;
 
-  /*
-   * Human-readable message.
-   */
   message: string;
 
-  /*
-   * User balance after processing, when available.
-   */
   newBalance?: number;
 
-  /*
-   * Nigerian calendar date used by the processor.
-   */
   nigeriaDate?: string;
 };
 
@@ -148,58 +132,92 @@ export const DEFAULT_DAILY_RETURN = 200;
 
 export const DEFAULT_MINIMUM_INVESTMENT = 500;
 
+export const DEFAULT_CYCLE_DAYS = 3;
+
+export const DEFAULT_CYCLE_TOTAL_RETURN =
+  DEFAULT_DAILY_RETURN *
+  DEFAULT_CYCLE_DAYS;
+
+
+/* ============================================================
+   MONEY FORMATTER
+   ============================================================ */
+
+function formatReturnAmount(
+  amount: number
+): string {
+  return new Intl.NumberFormat(
+    "en-NG",
+    {
+      style: "currency",
+      currency: "NGN",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }
+  ).format(amount);
+}
+
 
 /* ============================================================
    NIGERIAN TIME
    ============================================================ */
 
 /*
- * Nigeria uses West Africa Time (WAT).
+ * Nigeria uses West Africa Time.
  *
  * WAT = UTC + 1
  *
- * This function returns the current moment as a JavaScript
- * Date while using the Nigerian clock to determine the date
- * and time.
+ * This function obtains the current Nigerian
+ * date/time and converts it into the correct
+ * JavaScript Date representing that instant.
  */
+
 function getNigeriaNow(): Date {
-  const formatter = new Intl.DateTimeFormat(
-    "en-CA",
-    {
-      timeZone: "Africa/Lagos",
+  const formatter =
+    new Intl.DateTimeFormat(
+      "en-CA",
+      {
+        timeZone: "Africa/Lagos",
 
-      year: "numeric",
+        year: "numeric",
 
-      month: "2-digit",
+        month: "2-digit",
 
-      day: "2-digit",
+        day: "2-digit",
 
-      hour: "2-digit",
+        hour: "2-digit",
 
-      minute: "2-digit",
+        minute: "2-digit",
 
-      second: "2-digit",
+        second: "2-digit",
 
-      hourCycle: "h23",
-    }
-  );
+        hourCycle: "h23",
+      }
+    );
 
-  const parts = formatter.formatToParts(
-    new Date()
-  );
+  const parts =
+    formatter.formatToParts(
+      new Date()
+    );
 
-  const values: Record<string, string> = {};
+  const values: Record<
+    string,
+    string
+  > = {};
 
   for (const part of parts) {
-    if (part.type !== "literal") {
-      values[part.type] = part.value;
+    if (
+      part.type !== "literal"
+    ) {
+      values[part.type] =
+        part.value;
     }
   }
 
   /*
-   * Convert the Nigerian clock into a UTC timestamp.
-   *
-   * Nigeria is UTC+1, therefore subtract one hour.
+   * Interpret the Nigerian clock as UTC,
+   * then subtract one hour because Nigeria
+   * is UTC+1.
    */
   return new Date(
     Date.UTC(
@@ -219,13 +237,6 @@ function getNigeriaNow(): Date {
    NIGERIAN DATE KEY
    ============================================================ */
 
-/*
- * Returns the Nigerian calendar date.
- *
- * Example:
- *
- * 2026-10-02
- */
 export function getNigeriaDateKey(
   date: Date = getNigeriaNow()
 ): string {
@@ -252,33 +263,25 @@ export function getNigeriaDateKey(
    ============================================================ */
 
 /*
- * Returns the next Nigerian midnight.
+ * Returns the next 12:00 AM Nigerian time.
  *
  * Example:
  *
  * Current Nigerian time:
- *
  * October 2, 2026 — 8:00 PM
  *
  * Result:
- *
  * October 3, 2026 — 12:00 AM WAT
- *
- * The returned Date represents the actual UTC instant
- * corresponding to Nigerian midnight.
  */
+
 export function getNextNigeriaMidnight(
   fromDate: Date = getNigeriaNow()
 ): Date {
-  /*
-   * Obtain the Nigerian calendar date of the supplied moment.
-   */
   const nigeriaDate =
-    getNigeriaDateKey(fromDate);
+    getNigeriaDateKey(
+      fromDate
+    );
 
-  /*
-   * Create tomorrow's Nigerian date.
-   */
   const [
     year,
     month,
@@ -288,27 +291,21 @@ export function getNextNigeriaMidnight(
     .map(Number);
 
   /*
-   * Nigerian midnight is 23:00 UTC on the previous
-   * UTC calendar day because Nigeria is UTC+1.
-   *
-   * Start with midnight UTC for the Nigerian date,
-   * then move to the following Nigerian day.
+   * Nigeria midnight is 23:00 UTC
+   * on the previous UTC calendar day.
    */
-  const tomorrowAtNigerianMidnight =
-    new Date(
-      Date.UTC(
-        year,
-        month - 1,
-        day + 1,
-        0,
-        0,
-        0,
-        0
-      ) -
-        60 * 60 * 1000
-    );
-
-  return tomorrowAtNigerianMidnight;
+  return new Date(
+    Date.UTC(
+      year,
+      month - 1,
+      day + 1,
+      0,
+      0,
+      0,
+      0
+    ) -
+      60 * 60 * 1000
+  );
 }
 
 
@@ -316,10 +313,6 @@ export function getNextNigeriaMidnight(
    FIRESTORE DATE CONVERSION
    ============================================================ */
 
-/*
- * Convert a Firestore Timestamp, Date, number or string
- * into a JavaScript Date.
- */
 function toDate(
   value: unknown
 ): Date | null {
@@ -327,9 +320,8 @@ function toDate(
     return null;
   }
 
-
   /*
-   * Firestore Timestamp.
+   * Firestore Timestamp
    */
   if (
     typeof value === "object" &&
@@ -342,11 +334,12 @@ function toDate(
     ).toDate === "function"
   ) {
     try {
-      const date = (
-        value as {
-          toDate: () => Date;
-        }
-      ).toDate();
+      const date =
+        (
+          value as {
+            toDate: () => Date;
+          }
+        ).toDate();
 
       if (
         date instanceof Date &&
@@ -361,11 +354,12 @@ function toDate(
     }
   }
 
-
   /*
-   * JavaScript Date.
+   * JavaScript Date
    */
-  if (value instanceof Date) {
+  if (
+    value instanceof Date
+  ) {
     return Number.isNaN(
       value.getTime()
     )
@@ -373,9 +367,8 @@ function toDate(
       : value;
   }
 
-
   /*
-   * Numeric timestamp.
+   * Numeric timestamp
    */
   if (
     typeof value === "number"
@@ -390,9 +383,8 @@ function toDate(
       : date;
   }
 
-
   /*
-   * String date.
+   * String date
    */
   if (
     typeof value === "string"
@@ -406,7 +398,6 @@ function toDate(
       ? null
       : date;
   }
-
 
   return null;
 }
@@ -429,11 +420,6 @@ function toTimestamp(
    NUMBER VALIDATION
    ============================================================ */
 
-/*
- * Returns a safe non-negative number.
- *
- * Invalid or negative values become the fallback.
- */
 function safeNumber(
   value: unknown,
   fallback = 0
@@ -457,36 +443,9 @@ function safeNumber(
    PROCESS DAILY RETURN
    ============================================================ */
 
-/*
- * Processes ONE due daily return.
- *
- * This function is intended to be called when the user opens
- * the Investment page.
- *
- * FLOW:
- *
- *     Open Investment page
- *             ↓
- *     Check investment
- *             ↓
- *     ACTIVE?
- *             ↓
- *     Return due?
- *             ↓
- *     Already processed today?
- *             ↓
- *     Credit daily return
- *             ↓
- *     Update investment
- *             ↓
- *     Schedule next Nigerian midnight
- */
 export async function processDailyReturn(
   uid: string
 ): Promise<ReturnProcessResult> {
-  /*
-   * Validate UID.
-   */
   if (
     !uid ||
     typeof uid !== "string"
@@ -503,55 +462,40 @@ export async function processDailyReturn(
     };
   }
 
-
-  /*
-   * Current Nigerian moment.
-   */
   const nigeriaNow =
     getNigeriaNow();
 
-
-  /*
-   * Current Nigerian calendar date.
-   */
   const nigeriaDate =
     getNigeriaDateKey(
       nigeriaNow
     );
 
+  const userRef =
+    doc(
+      db,
+      "users",
+      uid
+    );
 
-  /*
-   * Firestore references.
-   */
-  const userRef = doc(
-    db,
-    "users",
-    uid
-  );
-
-  const investmentRef = doc(
-    db,
-    "investments",
-    uid
-  );
-
+  const investmentRef =
+    doc(
+      db,
+      "investments",
+      uid
+    );
 
   try {
-    /*
-     * Firestore transaction.
-     *
-     * The user's balance and investment information
-     * are updated together.
-     */
     const result =
       await runTransaction(
         db,
-        async (transaction) => {
+        async (
+          transaction
+        ) => {
           /*
-           * IMPORTANT:
-           *
-           * All transaction reads happen before writes.
+           * ALL TRANSACTION READS
+           * MUST HAPPEN BEFORE WRITES.
            */
+
           const userSnapshot =
             await transaction.get(
               userRef
@@ -561,7 +505,6 @@ export async function processDailyReturn(
             await transaction.get(
               investmentRef
             );
-
 
           /* ==================================================
              USER CHECK
@@ -582,7 +525,6 @@ export async function processDailyReturn(
             };
           }
 
-
           /* ==================================================
              INVESTMENT CHECK
              ================================================== */
@@ -602,13 +544,11 @@ export async function processDailyReturn(
             };
           }
 
-
           const profile =
             userSnapshot.data() as UserProfile;
 
           const investment =
             investmentSnapshot.data() as InvestmentData;
-
 
           /* ==================================================
              INVESTMENT STATUS
@@ -618,7 +558,6 @@ export async function processDailyReturn(
             String(
               investment.status ?? ""
             ).toUpperCase();
-
 
           if (
             investmentStatus !==
@@ -636,7 +575,6 @@ export async function processDailyReturn(
             };
           }
 
-
           /* ==================================================
              INVESTMENT AMOUNT
              ================================================== */
@@ -648,11 +586,6 @@ export async function processDailyReturn(
               0
             );
 
-
-          /*
-           * An active investment must have at least
-           * the current minimum investment amount.
-           */
           if (
             investmentAmount <
             DEFAULT_MINIMUM_INVESTMENT
@@ -669,7 +602,6 @@ export async function processDailyReturn(
             };
           }
 
-
           /* ==================================================
              DAILY RETURN
              ================================================== */
@@ -679,7 +611,6 @@ export async function processDailyReturn(
               investment.dailyReturn,
               DEFAULT_DAILY_RETURN
             );
-
 
           if (
             dailyReturn <= 0
@@ -696,6 +627,60 @@ export async function processDailyReturn(
             };
           }
 
+          /* ==================================================
+             CYCLE SETTINGS
+             ================================================== */
+
+          const cycleDays =
+            Math.max(
+              1,
+              Math.floor(
+                safeNumber(
+                  investment.cycleDays,
+                  DEFAULT_CYCLE_DAYS
+                )
+              )
+            );
+
+          const currentReturnsProcessed =
+            Math.max(
+              0,
+              Math.floor(
+                safeNumber(
+                  investment.returnsProcessed,
+                  0
+                )
+              )
+            );
+
+          /*
+           * If the cycle has already reached its
+           * maximum number of returns, do not credit again.
+           */
+
+          if (
+            currentReturnsProcessed >=
+            cycleDays
+          ) {
+            return {
+              success: true,
+
+              credited: false,
+
+              amountCredited: 0,
+
+              message:
+                "This investment cycle has already been completed.",
+
+              newBalance:
+                safeNumber(
+                  profile.balance,
+                  0
+                ),
+
+              nigeriaDate,
+            };
+          }
 
           /* ==================================================
              DUPLICATE PROTECTION
@@ -704,11 +689,6 @@ export async function processDailyReturn(
           const lastReturnDate =
             investment.lastReturnDate;
 
-
-          /*
-           * If today's return was already processed,
-           * NEVER credit another return.
-           */
           if (
             lastReturnDate ===
             nigeriaDate
@@ -733,7 +713,6 @@ export async function processDailyReturn(
             };
           }
 
-
           /* ==================================================
              NEXT RETURN CHECK
              ================================================== */
@@ -743,13 +722,6 @@ export async function processDailyReturn(
               investment.nextReturnAt
             );
 
-
-          /*
-           * An investment without nextReturnAt is not
-           * considered due.
-           *
-           * This prevents accidental first-day crediting.
-           */
           if (!nextReturnDate) {
             return {
               success: true,
@@ -771,10 +743,6 @@ export async function processDailyReturn(
             };
           }
 
-
-          /*
-           * The scheduled return time has not arrived.
-           */
           if (
             nigeriaNow.getTime() <
             nextReturnDate.getTime()
@@ -797,10 +765,7 @@ export async function processDailyReturn(
 
               nigeriaDate,
             };
-          }
-
-
-          /* ==================================================
+          }          /* ==================================================
              CURRENT BALANCE
              ================================================== */
 
@@ -810,34 +775,21 @@ export async function processDailyReturn(
               0
             );
 
+          /* ==================================================
+             CREDIT DAILY RETURN
+             ================================================== */
 
-          /*
-           * Add the daily return.
-           */
           const newBalance =
             currentBalance +
             dailyReturn;
-
 
           /* ==================================================
              RETURN COUNTER
              ================================================== */
 
-          const currentReturnsProcessed =
-            Math.max(
-              0,
-              Math.floor(
-                safeNumber(
-                  investment.returnsProcessed,
-                  0
-                )
-              )
-            );
-
-
           const newReturnsProcessed =
-            currentReturnsProcessed + 1;
-
+            currentReturnsProcessed +
+            1;
 
           /* ==================================================
              TOTAL RETURNS
@@ -849,21 +801,35 @@ export async function processDailyReturn(
               0
             );
 
-
           const newTotalReturns =
             currentTotalReturns +
             dailyReturn;
 
-
           /* ==================================================
-             NEXT RETURN TIME
+             CYCLE COMPLETION
              ================================================== */
+
+          const cycleCompleted =
+            newReturnsProcessed >=
+            cycleDays;
+
+          /*
+           * If this was the final return,
+           * the investment becomes COMPLETED.
+           *
+           * Otherwise it remains ACTIVE and
+           * the next return is scheduled.
+           */
+
+          const newInvestmentStatus =
+            cycleCompleted
+              ? "COMPLETED"
+              : "ACTIVE";
 
           const nextNigeriaMidnight =
             getNextNigeriaMidnight(
               nigeriaNow
             );
-
 
           /* ==================================================
              UPDATE USER
@@ -872,10 +838,13 @@ export async function processDailyReturn(
           transaction.update(
             userRef,
             {
-              balance: newBalance,
+              balance:
+                newBalance,
+
+              updatedAt:
+                Timestamp.now(),
             }
           );
-
 
           /* ==================================================
              UPDATE INVESTMENT
@@ -893,17 +862,53 @@ export async function processDailyReturn(
               returnsProcessed:
                 newReturnsProcessed,
 
+              status:
+                newInvestmentStatus,
+
+              /*
+               * When the cycle is complete there is
+               * no next return.
+               *
+               * Otherwise schedule the next
+               * Nigerian midnight.
+               */
               nextReturnAt:
-                toTimestamp(
-                  nextNigeriaMidnight
-                ),
+                cycleCompleted
+                  ? null
+                  : toTimestamp(
+                      nextNigeriaMidnight
+                    ),
+
+              updatedAt:
+                Timestamp.now(),
             }
           );
 
-
           /* ==================================================
-             SUCCESS
+             SUCCESS MESSAGE
              ================================================== */
+
+          if (
+            cycleCompleted
+          ) {
+            return {
+              success: true,
+
+              credited: true,
+
+              amountCredited:
+                dailyReturn,
+
+              message:
+                `Daily return of ${formatReturnAmount(
+                  dailyReturn
+                )} has been credited. Your ${cycleDays}-day investment cycle is now complete.`,
+
+              newBalance,
+
+              nigeriaDate,
+            };
+          }
 
           return {
             success: true,
@@ -916,7 +921,7 @@ export async function processDailyReturn(
             message:
               `Daily return of ${formatReturnAmount(
                 dailyReturn
-              )} has been recorded.`,
+              )} has been credited successfully.`,
 
             newBalance,
 
@@ -925,14 +930,12 @@ export async function processDailyReturn(
         }
       );
 
-
     return result;
   } catch (error) {
     console.error(
       "Daily return processing error:",
       error
     );
-
 
     return {
       success: false,
@@ -953,22 +956,20 @@ export async function processDailyReturn(
    ============================================================ */
 
 /*
- * Checks whether a daily return is currently due.
+ * This function ONLY checks.
  *
- * IMPORTANT:
- *
- * This function ONLY READS data.
- *
- * It does NOT change:
+ * It does not change:
  *
  * - balance
  * - totalReturns
  * - lastReturnDate
  * - nextReturnAt
+ * - returnsProcessed
  *
- * Use processDailyReturn() when you actually want
- * to process the return.
+ * Use processDailyReturn() to actually process
+ * the return.
  */
+
 export async function isDailyReturnDue(
   uid: string
 ): Promise<boolean> {
@@ -979,7 +980,6 @@ export async function isDailyReturnDue(
     return false;
   }
 
-
   try {
     const investmentRef =
       doc(
@@ -988,12 +988,10 @@ export async function isDailyReturnDue(
         uid
       );
 
-
     const snapshot =
       await getDoc(
         investmentRef
       );
-
 
     if (
       !snapshot.exists()
@@ -1001,10 +999,8 @@ export async function isDailyReturnDue(
       return false;
     }
 
-
     const investment =
       snapshot.data() as InvestmentData;
-
 
     /* ========================================================
        ACTIVE CHECK
@@ -1019,21 +1015,56 @@ export async function isDailyReturnDue(
       return false;
     }
 
+    /* ========================================================
+       CYCLE CHECK
+       ======================================================== */
+
+    const cycleDays =
+      Math.max(
+        1,
+        Math.floor(
+          safeNumber(
+            investment.cycleDays,
+            DEFAULT_CYCLE_DAYS
+          )
+        )
+      );
+
+    const returnsProcessed =
+      Math.max(
+        0,
+        Math.floor(
+          safeNumber(
+            investment.returnsProcessed,
+            0
+          )
+        )
+      );
+
+    /*
+     * No return is due if the investment
+     * has already completed its cycle.
+     */
+
+    if (
+      returnsProcessed >=
+      cycleDays
+    ) {
+      return false;
+    }
 
     /* ========================================================
-       TODAY CHECK
-       ==================================    /* ========================================================
        TODAY CHECK
        ======================================================== */
 
     const today =
       getNigeriaDateKey();
 
-
     /*
      * If today's return has already been processed,
      * it is not due anymore.
      */
+
     if (
       investment.lastReturnDate ===
       today
@@ -1041,69 +1072,312 @@ export async function isDailyReturnDue(
       return false;
     }
 
-
     /* ========================================================
-       NEXT RETURN CHECK
+       NEXT RETURN TIME
        ======================================================== */
 
-    const nextReturn =
+    const nextReturnDate =
       toDate(
         investment.nextReturnAt
       );
 
-
     /*
-     * If there is no scheduled return time,
-     * we cannot safely determine that a return is due.
+     * If there is no scheduled return,
+     * it is not considered due.
      */
-    if (!nextReturn) {
+
+    if (!nextReturnDate) {
       return false;
     }
 
-
     /* ========================================================
-       TIME CHECK
+       CURRENT TIME
        ======================================================== */
 
+    const now =
+      getNigeriaNow();
+
     /*
-     * The return becomes due once the scheduled
-     * Nigerian midnight has been reached.
+     * Return is due only when the scheduled
+     * Nigerian return time has arrived.
      */
-    return (
-      getNigeriaNow().getTime() >=
-      nextReturn.getTime()
-    );
+
+    if (
+      now.getTime() <
+      nextReturnDate.getTime()
+    ) {
+      return false;
+    }
+
+    return true;
   } catch (error) {
     console.error(
-      "Daily return check error:",
+      "Checking daily return error:",
       error
     );
 
     return false;
   }
+}/* ============================================================
+   GET INVESTMENT RETURN SUMMARY
+   ============================================================ */
+
+/*
+ * Optional helper for the Investment page.
+ *
+ * This does NOT modify Firestore.
+ *
+ * It can be used to display:
+ *
+ * - daily return
+ * - total returns
+ * - returns processed
+ * - remaining returns
+ * - cycle days
+ * - whether the cycle is complete
+ */
+
+export type InvestmentReturnSummary = {
+  dailyReturn: number;
+
+  totalReturns: number;
+
+  returnsProcessed: number;
+
+  cycleDays: number;
+
+  remainingReturns: number;
+
+  maximumCycleReturn: number;
+
+  cycleCompleted: boolean;
+
+  nextReturnAt: Date | null;
+
+  lastReturnDate: string;
+};
+
+
+export async function getInvestmentReturnSummary(
+  uid: string
+): Promise<
+  InvestmentReturnSummary | null
+> {
+  if (
+    !uid ||
+    typeof uid !== "string"
+  ) {
+    return null;
+  }
+
+  try {
+    const investmentRef =
+      doc(
+        db,
+        "investments",
+        uid
+      );
+
+    const snapshot =
+      await getDoc(
+        investmentRef
+      );
+
+    if (
+      !snapshot.exists()
+    ) {
+      return null;
+    }
+
+    const investment =
+      snapshot.data() as InvestmentData;
+
+    const dailyReturn =
+      safeNumber(
+        investment.dailyReturn,
+        DEFAULT_DAILY_RETURN
+      );
+
+    const cycleDays =
+      Math.max(
+        1,
+        Math.floor(
+          safeNumber(
+            investment.cycleDays,
+            DEFAULT_CYCLE_DAYS
+          )
+        )
+      );
+
+    const totalReturns =
+      safeNumber(
+        investment.totalReturns,
+        0
+      );
+
+    const returnsProcessed =
+      Math.max(
+        0,
+        Math.floor(
+          safeNumber(
+            investment.returnsProcessed,
+            0
+          )
+        )
+      );
+
+    const remainingReturns =
+      Math.max(
+        0,
+        cycleDays -
+          returnsProcessed
+      );
+
+    const maximumCycleReturn =
+      dailyReturn *
+      cycleDays;
+
+    const cycleCompleted =
+      returnsProcessed >=
+      cycleDays ||
+      String(
+        investment.status ?? ""
+      ).toUpperCase() ===
+        "COMPLETED";
+
+    return {
+      dailyReturn,
+
+      totalReturns,
+
+      returnsProcessed,
+
+      cycleDays,
+
+      remainingReturns,
+
+      maximumCycleReturn,
+
+      cycleCompleted,
+
+      nextReturnAt:
+        toDate(
+          investment.nextReturnAt
+        ),
+
+      lastReturnDate:
+        investment.lastReturnDate ||
+        "",
+    };
+  } catch (error) {
+    console.error(
+      "Investment return summary error:",
+      error
+    );
+
+    return null;
+  }
 }
 
 
 /* ============================================================
-   INITIAL RETURN SCHEDULE
+   GET NEXT RETURN COUNTDOWN
    ============================================================ */
 
 /*
- * Used when an admin activates a new investment.
+ * Returns the number of milliseconds remaining
+ * until the next daily return.
  *
- * This schedules the FIRST daily return for the
- * next Nigerian midnight.
+ * This is READ-ONLY.
  *
- * It does NOT credit any money.
- *
- * Example:
- *
- * Investment approved:
- * October 2, 2026 — 3:00 PM
- *
- * First return becomes due:
- * October 3, 2026 — 12:00 AM WAT
+ * Useful for a countdown displayed on the
+ * Investment page.
  */
+
+export async function getNextReturnCountdown(
+  uid: string
+): Promise<number | null> {
+  if (
+    !uid ||
+    typeof uid !== "string"
+  ) {
+    return null;
+  }
+
+  try {
+    const investmentRef =
+      doc(
+        db,
+        "investments",
+        uid
+      );
+
+    const snapshot =
+      await getDoc(
+        investmentRef
+      );
+
+    if (
+      !snapshot.exists()
+    ) {
+      return null;
+    }
+
+    const investment =
+      snapshot.data() as InvestmentData;
+
+    if (
+      String(
+        investment.status ?? ""
+      ).toUpperCase() !==
+      "ACTIVE"
+    ) {
+      return null;
+    }
+
+    const nextReturnDate =
+      toDate(
+        investment.nextReturnAt
+      );
+
+    if (!nextReturnDate) {
+      return null;
+    }
+
+    const now =
+      getNigeriaNow();
+
+    const remaining =
+      nextReturnDate.getTime() -
+      now.getTime();
+
+    return Math.max(
+      0,
+      remaining
+    );
+  } catch (error) {
+    console.error(
+      "Next return countdown error:",
+      error
+    );
+
+    return null;
+  }
+}
+
+
+/* ============================================================
+   INITIAL NEXT RETURN TIME
+   ============================================================ */
+
+/*
+ * This function is used when the admin approves
+ * a new investment.
+ *
+ * The first return is scheduled for the next
+ * Nigerian midnight.
+ */
+
 export function getInitialNextReturnAt(): Timestamp {
   return toTimestamp(
     getNextNigeriaMidnight()
@@ -1112,29 +1386,5 @@ export function getInitialNextReturnAt(): Timestamp {
 
 
 /* ============================================================
-   FORMAT RETURN AMOUNT
+   END OF RETURN LOGIC
    ============================================================ */
-
-/*
- * Formats a return amount consistently.
- *
- * Example:
- *
- * 200
- *
- * becomes:
- *
- * ₦200.00
- */
-export function formatReturnAmount(
-  amount: number
-): string {
-  return `₦${safeNumber(
-    amount,
-    0
-  ).toLocaleString("en-NG", {
-    minimumFractionDigits: 2,
-
-    maximumFractionDigits: 2,
-  })}`;
-}
